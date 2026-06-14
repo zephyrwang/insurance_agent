@@ -1,0 +1,12 @@
+streamlit==1.35.0
+langchain==0.2.0
+langchain-groq==0.1.6
+langchain-community==0.2.0
+langchain-experimental==0.0.59
+sqlalchemy==2.0.30
+pymysql==1.1.0
+fastapi==0.111.0
+uvicorn==0.29.0
+python-dotenv==1.0.1
+pandas>=2.0.0
+pydantic==2.7.1
