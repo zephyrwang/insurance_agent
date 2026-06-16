@@ -227,6 +227,44 @@ def get_person_summary(input_str: str = "") -> list:
         session.close()
 
 
+# -----------------------------------------------------------
+# Tool 6: Carrier claims summary — claim counts + amounts by carrier and year
+# -----------------------------------------------------------
+
+def get_carrier_claims_summary(input_str: str = "") -> list:
+    """Claim counts and total amounts per carrier, pivoted by year."""
+    import re
+    years = re.findall(r"\b(20\d{2})\b", input_str) or ["2024", "2025", "2026"]
+
+    year_count_cols = "\n".join([
+        f"SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN 1 ELSE 0 END) AS \"{y}_claims\","
+        for y in years
+    ])
+    year_amount_cols = "\n".join([
+        f"ROUND(SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN c.amount ELSE 0 END), 2) AS \"{y}_amount\","
+        for y in years
+    ])
+
+    session = _session()
+    try:
+        rows = session.execute(text(f"""
+            SELECT
+                p.carrier_name,
+                {year_count_cols}
+                {year_amount_cols}
+                COUNT(c.claim_id)           AS total_claims,
+                ROUND(SUM(c.amount), 2)     AS total_amount
+            FROM auto_policies p
+            LEFT JOIN claims c ON c.policy_id = p.policy_id
+            GROUP BY p.carrier_name
+            ORDER BY total_claims DESC
+        """)).mappings().fetchall()
+
+        return [dict(r) for r in rows]
+    finally:
+        session.close()
+
+
 ANALYTICS_TOOLS = [
     Tool(
         name="get_loss_ratio",
@@ -260,11 +298,21 @@ ANALYTICS_TOOLS = [
     Tool(
         name="get_carrier_summary",
         func=get_carrier_summary,
-        description="""Get policy counts per insurance carrier broken down by year.
+        description="""Get POLICY counts per insurance carrier broken down by year.
         Use when asked about: number of policies per company/carrier, carrier breakdown by year,
         'list all insurance companies with policy count', 'how many policies per carrier in 2024/2025/2026'.
         Input: list the years needed, e.g. '2024 2025 2026'. Defaults to 2024, 2025, 2026 if blank.
         Output: one row per carrier with a column for each year and a total."""
+    ),
+    Tool(
+        name="get_carrier_claims_summary",
+        func=get_carrier_claims_summary,
+        description="""Get CLAIM counts and total claim amounts per insurance carrier broken down by year.
+        Use when asked about: number of claims per company/carrier, claims by carrier by year,
+        'list all insurance companies with number of claims', 'how many claims per carrier in 2024/2025/2026',
+        'claims frequency by carrier', 'claim volume per company'.
+        Input: list the years needed, e.g. '2024 2025 2026'. Defaults to 2024, 2025, 2026 if blank.
+        Output: one row per carrier with claim count and total amount per year plus overall totals."""
     ),
     Tool(
         name="get_person_summary",

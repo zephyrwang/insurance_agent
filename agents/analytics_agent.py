@@ -38,6 +38,7 @@ Tool selection rules — follow these strictly:
 - For "overall portfolio loss ratio", call get_loss_ratio with an empty string input
 - Per-person combined view (policy + claims + risk + fraud) → use get_person_summary
 - Policy counts by carrier and year → use get_carrier_summary
+- Claim counts or claim volumes per carrier/company by year → use get_carrier_claims_summary
 
 General rules:
 - If a question is about a specific policy or risk score, say: "Please ask the Underwriting Agent"

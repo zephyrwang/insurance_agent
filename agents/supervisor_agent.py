@@ -12,25 +12,34 @@ from typing import Optional
 import os
 import re
 
-from agents.underwriting_agent import build_underwriting_agent
+from agents.underwriting_agent  import build_underwriting_agent
 from agents.claims_agent        import build_claims_agent
 from agents.analytics_agent     import build_analytics_agent
+from agents.output_validator    import enforce_tabular_format
 
 
 # -----------------------------------------------------------
 # Routing keywords
 # -----------------------------------------------------------
 
+# Keywords are grounded in which database table the question queries:
+#   underwriting → auto_policies columns only  (risk_score, premium, renewal_status, …)
+#   claims       → claims table columns only    (claim_date, claim_type, amount, status, …)
+#   analytics    → aggregates across both tables, or time-trend questions
+# Carrier/company names are NOT routing signals — the same carrier can appear in
+# any domain question ("Geico's churn rate" → underwriting, "Geico claims" → claims).
 ROUTING_RULES = {
     "underwriting": [
         "policy", "policies", "risk score", "risk tier", "churn", "non-renew",
-        "renewal rate", "attrition", "premium", "expir", "carrier", "coverage",
-        "state farm", "allstate", "geico", "quote", "bind"
+        "renewal rate", "renewal status", "attrition", "premium", "expir",
+        "coverage", "quote", "bind", "holder", "policyholder",
     ],
     "claims": [
-        "claim", "claims", "filed", "accident", "collision", "theft",
-        "liability", "suspicious", "siu", "frequent claimant",
-        "person id", "person_id", "claimant"
+        "claims history", "claims for", "claim filed", "filed a claim",
+        "accident", "collision", "theft", "liability",
+        "suspicious", "siu", "frequent claimant",
+        "person id", "person_id", "claimant",
+        "claim amount", "claim type", "open claim", "closed claim",
     ],
     "analytics": [
         "loss ratio", "loss sum", "claims trend", "trend", "portfolio", "summary",
@@ -38,7 +47,9 @@ ROUTING_RULES = {
         "pattern", "kpi", "performance", "profitab", "total premium", "aggregate",
         "all persons", "per person", "list all", "policy count", "premium sum",
         "claims count", "fraud flag", "person summary",
-        "insurance compan", "carrier breakdown", "policies per carrier", "number of policies"
+        "carrier breakdown", "policies per carrier", "number of policies",
+        "number of claims", "claims per carrier", "claims by carrier",
+        "insurance companies", "insurance company", "claim volume",
     ],
 }
 
@@ -63,13 +74,23 @@ def _llm_route(question: str, llm) -> str:
     """LLM-based routing fallback for ambiguous questions."""
     response = llm.invoke([
         SystemMessage(content="""You are a routing assistant for an insurance chatbot.
-Classify the user question into exactly one category:
-- underwriting: policy lookup, risk scores, churn/renewal rates, premiums
-- claims: claims history for a specific person, fraud risk for a specific person, frequent claimants list, SIU referrals
-- analytics: loss ratios, portfolio summaries, monthly/quarterly TRENDS over time, KPIs, aggregate statistics
+Classify the user question into exactly one category based on WHICH DATABASE TABLE it queries:
 
-Key rule: questions about TRENDS over time (monthly, seasonal, yearly patterns) always go to analytics,
-even if the word "claims" appears in the question.
+- underwriting: queries the policy table only — policy lookup, risk scores, premiums,
+  churn/renewal rates, coverage, expiry, policyholder details.
+- claims: queries the claims table for a specific person or policy — claims history,
+  frequent claimants by person, fraud risk for a person, SIU referrals.
+- analytics: aggregates or joins BOTH tables, OR asks about carrier/company-level totals,
+  OR asks about trends over time. "Number of claims per carrier", "claims by company",
+  "how many claims did Geico have in 2025" → analytics (requires joining claims + policies
+  to get carrier_name, which is not in the claims table).
+- analytics: aggregates or joins BOTH tables, or asks about trends over time —
+  loss ratios, portfolio summaries, monthly/quarterly/annual trends, KPIs.
+
+Key rules:
+- Carrier/company names (Geico, StateFarm, Allstate, …) are NOT routing signals on their own.
+  Route based on the data being requested, not the company name.
+- Trend questions always go to analytics even if the word "claims" appears.
 
 Reply with ONLY one word: underwriting, claims, or analytics."""),
         HumanMessage(content=question)
@@ -122,6 +143,7 @@ class SupervisorAgent:
 
         try:
             answer = agent.run(question)
+            answer = enforce_tabular_format(answer, self.llm)
         except Exception as e:
             answer = f"Error in {domain} agent: {str(e)}"
 

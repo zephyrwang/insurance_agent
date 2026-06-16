@@ -54,23 +54,32 @@ def find_frequent_claimants(input_str: str = "") -> list:
     years      = int((re.search(r"years[= ]+(\d+)",      input_str) or [None, 1])[1])
     cutoff     = date.today() - timedelta(days=years * 365)
 
+    # Optional carrier filter — e.g. "carrier=Geico min_claims=2 years=1"
+    carrier_match = re.search(
+        r"carrier[= ]+([A-Za-z][A-Za-z0-9 .-]*?)(?:\s+(?:min_claims|years)\b|$)",
+        input_str.strip(),
+    )
+    carrier = carrier_match.group(1).strip() if carrier_match else None
+
     session = _session()
     try:
         rows = session.execute(text("""
             SELECT
                 c.person_id,
-                COUNT(c.claim_id)  AS claims_count,
-                SUM(c.amount)      AS total_amount,
+                COUNT(DISTINCT c.claim_id) AS claims_count,
+                SUM(DISTINCT c.amount)     AS total_amount,
                 p.state,
-                p.risk_score
+                p.risk_score,
+                p.carrier_name
             FROM claims c
-            JOIN auto_policies p ON c.person_id = p.person_id
+            JOIN auto_policies p ON c.policy_id = p.policy_id
             WHERE c.claim_date >= :cutoff
-            GROUP BY c.person_id, p.state, p.risk_score
-            HAVING COUNT(c.claim_id) >= :min_claims
+              AND (:carrier IS NULL OR LOWER(p.carrier_name) = LOWER(:carrier))
+            GROUP BY c.person_id, p.state, p.risk_score, p.carrier_name
+            HAVING COUNT(DISTINCT c.claim_id) >= :min_claims
             ORDER BY claims_count DESC
             LIMIT 50
-        """), {"cutoff": cutoff, "min_claims": min_claims}).mappings().fetchall()
+        """), {"cutoff": cutoff, "min_claims": min_claims, "carrier": carrier}).mappings().fetchall()
 
         return [
             {
@@ -79,6 +88,7 @@ def find_frequent_claimants(input_str: str = "") -> list:
                 "total_amount": r["total_amount"],
                 "state":        r["state"],
                 "risk_score":   r["risk_score"],
+                "carrier_name": r["carrier_name"],
                 "fraud_flag":   r["claims_count"] >= 3,
             }
             for r in rows
@@ -132,12 +142,15 @@ CLAIMS_TOOLS = [
     Tool(
         name="find_frequent_claimants",
         func=find_frequent_claimants,
-        description="""Find ALL persons who have filed multiple claims.
+        description="""Find ALL persons who have filed multiple claims, optionally filtered by carrier.
         Use when asked to LIST or FIND persons with N or more claims — e.g.:
         'find all persons with 2 or more claims', 'who has multiple claims',
-        'frequent claimants', 'persons with more than 1 claim in the past year'.
-        Input: 'min_claims=2 years=1' — set min_claims and years from the question.
-        Output: ranked list of all matching persons with claim counts and fraud flags."""
+        'frequent claimants', 'claims frequency for Geico', 'persons with more than 1 claim in the past year'.
+        Input format: 'carrier=Geico min_claims=2 years=1'
+          - carrier= (optional) filters by insurance carrier name (e.g. Geico, StateFarm, Allstate)
+          - min_claims= minimum number of claims (default 2)
+          - years= lookback window in years (default 1)
+        Output: ranked list of all matching persons with claim counts, carrier, and fraud flags."""
     ),
     Tool(
         name="flag_fraud_risk",

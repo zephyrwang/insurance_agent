@@ -199,6 +199,27 @@ def render_agent_response(content: str):
                 st.markdown(text.replace("$", r"\$"))
 
 
+# ── Feedback persistence ────────────────────────────────────
+FEEDBACK_LOG_PATH = os.path.join(os.path.dirname(__file__), "feedback_log.jsonl")
+
+
+def log_feedback(msg_id: int, question: str, agent: Optional[str], answer: str, rating: str):
+    """Append a feedback record to the local JSONL log (best-effort, never raises)."""
+    record = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "msg_id": msg_id,
+        "question": question,
+        "agent": agent,
+        "answer": answer,
+        "rating": rating,
+    }
+    try:
+        with open(FEEDBACK_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 # ── Session state init ──────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -208,6 +229,15 @@ if "supervisor" not in st.session_state:
     st.session_state.supervisor = None
 if "total_queries" not in st.session_state:
     st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0}
+if "msg_id_counter" not in st.session_state:
+    st.session_state.msg_id_counter = 0
+if "ratings" not in st.session_state:
+    st.session_state.ratings = {}  # {msg_id: "satisfied" | "basic" | "incorrect"}
+
+
+def _next_msg_id() -> int:
+    st.session_state.msg_id_counter += 1
+    return st.session_state.msg_id_counter
 
 
 # ── Load supervisor (cached) ────────────────────────────────
@@ -299,6 +329,7 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.session_state.routing_log = []
+        st.session_state.ratings = {}
         st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0}
         st.rerun()
 
@@ -333,7 +364,7 @@ st.markdown(
 col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown("""
-    <div style="background:white; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
+    <div style="background:#E1F5EE; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
         <div style="font-size:13px; font-weight:500; color:#0F6E56;">📋 Underwriting Agent</div>
         <div style="font-size:12px; color:#666; margin-top:4px;">
         Policy lookup · Risk scores · Churn rates · Carrier analysis
@@ -342,7 +373,7 @@ with col1:
     """, unsafe_allow_html=True)
 with col2:
     st.markdown("""
-    <div style="background:white; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
+    <div style="background:#E6F1FB; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
         <div style="font-size:13px; font-weight:500; color:#185FA5;">📁 Claims Agent</div>
         <div style="font-size:12px; color:#666; margin-top:4px;">
         Claims history · Frequent claimants · Fraud detection · SIU flags
@@ -351,7 +382,7 @@ with col2:
     """, unsafe_allow_html=True)
 with col3:
     st.markdown("""
-    <div style="background:white; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
+    <div style="background:#FAEEDA; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
         <div style="font-size:13px; font-weight:500; color:#633806;">📊 Analytics Agent</div>
         <div style="font-size:12px; color:#666; margin-top:4px;">
         Loss ratios · Portfolio summary · Trend analysis · KPIs
@@ -372,7 +403,7 @@ with chat_container:
             unsafe_allow_html=True
         )
 
-    for msg in st.session_state.messages:
+    for idx, msg in enumerate(st.session_state.messages):
         if msg["role"] == "user":
             st.markdown(
                 f'<div style="display:flex; justify-content:flex-end; margin:8px 0;">'
@@ -402,6 +433,36 @@ with chat_container:
             with st.container():
                 render_agent_response(msg["content"])
 
+            msg_id = msg.get("id", idx)
+            current_rating = st.session_state.ratings.get(msg_id)
+            RATING_OPTIONS = {
+                "satisfied": "👍 Satisfied",
+                "basic": "🙂 Basic Good",
+                "incorrect": "👎 Incorrect",
+            }
+            rb_cols = st.columns([1, 1, 1, 5])
+            for col, (rating_key, rating_label) in zip(rb_cols[:3], RATING_OPTIONS.items()):
+                with col:
+                    is_selected = current_rating == rating_key
+                    if st.button(
+                        rating_label,
+                        key=f"rate_{msg_id}_{rating_key}",
+                        type="primary" if is_selected else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state.ratings[msg_id] = rating_key
+                        prev_question = ""
+                        if idx > 0 and st.session_state.messages[idx - 1]["role"] == "user":
+                            prev_question = st.session_state.messages[idx - 1]["content"]
+                        log_feedback(
+                            msg_id=msg_id,
+                            question=prev_question,
+                            agent=msg.get("agent"),
+                            answer=msg["content"],
+                            rating=rating_key,
+                        )
+                        st.rerun()
+
 
 # ── Input area ──────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
@@ -429,7 +490,8 @@ if question_to_process and question_to_process.strip():
     # Add user message
     st.session_state.messages.append({
         "role": "user",
-        "content": question
+        "content": question,
+        "id": _next_msg_id()
     })
 
     # Load supervisor
@@ -444,7 +506,8 @@ if question_to_process and question_to_process.strip():
             "role": "assistant",
             "content": error_msg,
             "agent": None,
-            "timestamp": datetime.now().strftime("%H:%M")
+            "timestamp": datetime.now().strftime("%H:%M"),
+            "id": _next_msg_id()
         })
     else:
         with st.spinner("Thinking..."):
@@ -464,7 +527,8 @@ if question_to_process and question_to_process.strip():
                     "role": "assistant",
                     "content": answer,
                     "agent": domain,
-                    "timestamp": datetime.now().strftime("%H:%M")
+                    "timestamp": datetime.now().strftime("%H:%M"),
+                    "id": _next_msg_id()
                 })
 
             except Exception as e:
@@ -472,7 +536,8 @@ if question_to_process and question_to_process.strip():
                     "role": "assistant",
                     "content": f"An error occurred: {str(e)}. Please check your API key and database connection.",
                     "agent": None,
-                    "timestamp": datetime.now().strftime("%H:%M")
+                    "timestamp": datetime.now().strftime("%H:%M"),
+                    "id": _next_msg_id()
                 })
 
     st.rerun()
