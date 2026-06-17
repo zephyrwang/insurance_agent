@@ -1,6 +1,36 @@
+# Environment
 .env
+.venv/
+venv/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Database files
 *.db
+
+# Runtime / app data
+feedback_log.jsonl
+
+# Streamlit
+.streamlit/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
+
+# MCP config
+.mcp.json
+
+# macOS
 .DS_Store
 .claude/
