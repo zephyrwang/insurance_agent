@@ -28,7 +28,6 @@ MOCK_RESPONSES = {
 - Risk score of 72 places this policy in the Medium tier (50–74 range).
 - Premium of $1,450/yr is consistent with medium-risk profiles for California.
 - No immediate renewal action required; recommend review at next expiry date.""",
-
         """\
 **Churn Rate — StateFarm, Q1 2026**
 
@@ -45,7 +44,6 @@ MOCK_RESPONSES = {
 - Churn rate of 8.5% is 1.5 pp above the 7% industry benchmark — warrants attention.
 - 12 non-renewals in a single quarter may indicate pricing or service competitiveness issues.
 - Recommend reviewing renewal offers and proactive outreach for at-risk policyholders.""",
-
         """\
 **Active Policies — Texas**
 
@@ -61,7 +59,6 @@ MOCK_RESPONSES = {
 - Texas portfolio is mid-risk with an average score of 64 (Medium tier).
 - 8 high-risk policies (≥75) account for roughly 24% of the book; closer monitoring advised.
 - Average premium of $1,280 is below the national average — review pricing adequacy.""",
-
         """\
 **Risk Score — Policy A-10567**
 
@@ -80,7 +77,6 @@ MOCK_RESPONSES = {
 - Consider non-renewal or rate adjustment at next renewal cycle.
 - Flag for underwriting committee review before binding any additional coverage.""",
     ],
-
     "claims": [
         """\
 **Claims History — P-001 (Last 3 Years)**
@@ -95,7 +91,6 @@ MOCK_RESPONSES = {
 - 3 claims totalling $27,700 in 3 years — above average frequency.
 - Open liability claim of $4,500 requires follow-up; reserve may need adjustment.
 - Fraud risk is 🔴 High — recommend SIU referral given claim volume and amounts.""",
-
         """\
 **Frequent Claimants — 2+ Claims, Past Year**
 
@@ -108,7 +103,6 @@ MOCK_RESPONSES = {
 - P-008 has 3 claims totalling $31,200 — exceeds the High-risk threshold; SIU referral advised.
 - P-001's 2 claims are within acceptable range but should be monitored closely.
 - Consider placing both claimants on a watchlist for the next policy year.""",
-
         """\
 **Fraud Risk Assessment — P-002**
 
@@ -126,7 +120,6 @@ MOCK_RESPONSES = {
 - Single claim of $3,400 over 3 years is well within normal range.
 - No open claims; no simultaneous claim patterns detected.
 - No SIU action required — routine monitoring sufficient.""",
-
         """\
 **Claims History — Policy A-10234**
 
@@ -139,7 +132,6 @@ MOCK_RESPONSES = {
 - Claim is fully resolved; no open liability exposure on this policy.
 - Risk profile remains stable; no changes to renewal recommendation at this time.""",
     ],
-
     "analytics": [
         """\
 **Portfolio Summary**
@@ -158,7 +150,6 @@ MOCK_RESPONSES = {
 - Loss ratio of 60.2% is below the 70% industry threshold — portfolio is profitable.
 - 5 of 6 policies are active; 1 inactive policy should be reviewed for reinstatement.
 - Recommend focusing growth efforts in states with lower loss ratios to maintain margins.""",
-
         """\
 **Loss Ratio — California**
 
@@ -175,7 +166,6 @@ MOCK_RESPONSES = {
 - Loss ratio of 68.4% is within acceptable range but close to the 70% threshold.
 - Close monitoring is advised — any increase in claims frequency could push into unprofitable territory.
 - Consider tightening underwriting criteria for high-risk applicants in California.""",
-
         """\
 **Monthly Claims Trend — Past 12 Months**
 
@@ -198,7 +188,6 @@ MOCK_RESPONSES = {
 - October 2025 and January 2026 show the highest claim volumes — seasonal weather and post-holiday patterns.
 - Summer months (Jul–Aug) are the lowest-risk period across the portfolio.
 - Oct spike driven by 2 large liability claims; recommend pre-winter risk advisories to policyholders.""",
-
         """\
 **Claims by Insurance Company — 2024 / 2025 / 2026**
 
@@ -214,7 +203,6 @@ MOCK_RESPONSES = {
 - GEICO leads in total claim volume (23 claims) — warrants portfolio-level risk review.
 - Claims are trending upward year-over-year across all carriers; 2025 is the peak year.
 - Nationwide has the lowest claim volume (8 total), suggesting either a smaller book or lower-risk policyholders.""",
-
         """\
 **Overall Portfolio Loss Ratio**
 
@@ -244,21 +232,56 @@ class MockSupervisorAgent:
     def _route(self, question: str) -> str:
         q = question.lower()
         # Analytics: aggregate / cross-carrier / trend questions (check first — highest priority)
-        if any(w in q for w in [
-            "loss ratio", "loss sum", "claims trend", "trend", "portfolio",
-            "summary", "kpi", "monthly", "quarterly", "aggregate",
-            "all persons", "per person", "list all", "policy count",
-            "premium sum", "claims count", "fraud flag", "person summary",
-            "number of claims", "claims per carrier", "claims by carrier",
-            "insurance companies", "insurance company", "claim volume",
-        ]):
+        if any(
+            w in q
+            for w in [
+                "loss ratio",
+                "loss sum",
+                "claims trend",
+                "trend",
+                "portfolio",
+                "summary",
+                "kpi",
+                "monthly",
+                "quarterly",
+                "aggregate",
+                "all persons",
+                "per person",
+                "list all",
+                "policy count",
+                "premium sum",
+                "claims count",
+                "fraud flag",
+                "person summary",
+                "number of claims",
+                "claims per carrier",
+                "claims by carrier",
+                "insurance companies",
+                "insurance company",
+                "claim volume",
+            ]
+        ):
             return "analytics"
         # Claims: person/policy-level claim lookups
-        if any(w in q for w in [
-            "claims history", "claims for", "claim filed", "filed a claim",
-            "fraud", "siu", "frequent claimant", "person id", "person_id", "claimant",
-            "accident", "collision", "theft", "liability",
-        ]):
+        if any(
+            w in q
+            for w in [
+                "claims history",
+                "claims for",
+                "claim filed",
+                "filed a claim",
+                "fraud",
+                "siu",
+                "frequent claimant",
+                "person id",
+                "person_id",
+                "claimant",
+                "accident",
+                "collision",
+                "theft",
+                "liability",
+            ]
+        ):
             return "claims"
         return "underwriting"
 

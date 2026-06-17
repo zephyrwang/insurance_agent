@@ -17,7 +17,7 @@ from db.database import seed_sample_data, get_engine
 app = FastAPI(
     title="Insurance Policy Chatbot API",
     description="Multi-agent LLM chatbot for insurance carriers",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 app.add_middleware(
@@ -49,14 +49,15 @@ def startup():
 # Request / Response models
 # -----------------------------------------------------------
 
+
 class ChatRequest(BaseModel):
     question: str
-    session_id: str = "default"   # future: per-session memory
+    session_id: str = "default"  # future: per-session memory
 
 
 class ChatResponse(BaseModel):
-    question:  str
-    answer:    str
+    question: str
+    answer: str
     routed_to: str
 
 
@@ -67,6 +68,7 @@ class RoutingLogResponse(BaseModel):
 # -----------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------
+
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
@@ -99,14 +101,14 @@ def list_agents():
     return {
         "underwriting": {
             "description": "Policy lookup, risk scoring, churn/renewal rates",
-            "tools": ["query_policy_db", "get_risk_score", "get_churn_rate"]
+            "tools": ["query_policy_db", "get_risk_score", "get_churn_rate"],
         },
         "claims": {
             "description": "Claims history, frequent claimants, fraud detection",
-            "tools": ["get_claims_by_person", "find_frequent_claimants", "flag_fraud_risk"]
+            "tools": ["get_claims_by_person", "find_frequent_claimants", "flag_fraud_risk"],
         },
         "analytics": {
             "description": "Loss ratios, portfolio summaries, trend analysis",
-            "tools": ["get_loss_ratio", "get_portfolio_summary", "get_claims_trend"]
-        }
+            "tools": ["get_loss_ratio", "get_portfolio_summary", "get_claims_trend"],
+        },
     }

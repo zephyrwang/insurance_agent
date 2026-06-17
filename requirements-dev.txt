@@ -1,0 +1,5 @@
+# Development and code quality tools
+# Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+
+black==24.4.2

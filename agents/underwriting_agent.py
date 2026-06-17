@@ -60,8 +60,10 @@ def _build_nl_sql_tool(db_url: str, llm):
     engine = create_engine(db_url, connect_args=connect_args)
 
     def query_fn(question: str) -> str:
-        response = llm.invoke([
-            SystemMessage(content=f"""You are a SQL expert. Generate a valid SQLite query.
+        response = llm.invoke(
+            [
+                SystemMessage(
+                    content=f"""You are a SQL expert. Generate a valid SQLite query.
 
 Schema:
 {DB_SCHEMA}
@@ -70,9 +72,11 @@ Rules:
 - Return ONLY the raw SQL — no markdown, no code fences, no explanation
 - Do NOT add LIMIT unless the user explicitly asks for a limited number of results
 - Use SQLite-compatible syntax (strftime, not DATE_FORMAT)
-"""),
-            HumanMessage(content=question)
-        ])
+"""
+                ),
+                HumanMessage(content=question),
+            ]
+        )
 
         sql = response.content.strip()
         # Strip any markdown code fences the LLM may add
@@ -96,28 +100,24 @@ Rules:
 
 def build_underwriting_agent(db_url: str = None, llm=None):
     llm = llm or ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        groq_api_key=os.getenv("GROQ_API_KEY")
+        model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
     tools = list(UNDERWRITING_TOOLS)
 
     if db_url:
-        tools.append(Tool(
-            name="query_policy_db",
-            func=_build_nl_sql_tool(db_url, llm),
-            description="""Query the auto policy database with natural language.
+        tools.append(
+            Tool(
+                name="query_policy_db",
+                func=_build_nl_sql_tool(db_url, llm),
+                description="""Query the auto policy database with natural language.
             Use for complex lookups: filtering by state, carrier, status, risk score, count, etc.
             Input: a natural language question about policies.
-            Examples: 'How many active policies are there?', 'Find all policies in CA with risk score above 80'"""
-        ))
+            Examples: 'How many active policies are there?', 'Find all policies in CA with risk score above 80'""",
+            )
+        )
 
-    memory = ConversationBufferWindowMemory(
-        memory_key="chat_history",
-        return_messages=True,
-        k=5
-    )
+    memory = ConversationBufferWindowMemory(memory_key="chat_history", return_messages=True, k=5)
 
     agent = initialize_agent(
         tools=tools,

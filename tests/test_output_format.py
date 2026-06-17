@@ -49,6 +49,7 @@ EMPTY_OUTPUT = ""
 
 # ── validate_tabular_output tests ────────────────────────────────────────────
 
+
 class TestValidateTabularOutput:
     def test_valid_output_returns_no_violations(self):
         assert validate_tabular_output(VALID_TABLE_WITH_COMMENT) == []
@@ -90,10 +91,12 @@ class TestValidateTabularOutput:
 
 # ── enforce_tabular_format tests ─────────────────────────────────────────────
 
+
 class TestEnforceTabularFormat:
     def _fake_llm(self, return_value=VALID_TABLE_WITH_COMMENT):
         """LLM stub whose .invoke() returns a fake AIMessage."""
         from unittest.mock import MagicMock
+
         llm = MagicMock()
         msg = MagicMock()
         msg.content = return_value
@@ -102,6 +105,7 @@ class TestEnforceTabularFormat:
 
     def test_valid_answer_returned_unchanged(self):
         from agents.output_validator import enforce_tabular_format
+
         llm = self._fake_llm()
         result = enforce_tabular_format(VALID_TABLE_WITH_COMMENT, llm)
         assert result == VALID_TABLE_WITH_COMMENT
@@ -109,6 +113,7 @@ class TestEnforceTabularFormat:
 
     def test_prose_answer_triggers_llm_reformat(self):
         from agents.output_validator import enforce_tabular_format
+
         llm = self._fake_llm(VALID_TABLE_WITH_COMMENT)
         result = enforce_tabular_format(PROSE_OUTPUT, llm)
         assert result == VALID_TABLE_WITH_COMMENT.strip()
@@ -122,6 +127,7 @@ class TestEnforceTabularFormat:
     def test_llm_exception_returns_original(self):
         from agents.output_validator import enforce_tabular_format
         from unittest.mock import MagicMock
+
         llm = MagicMock()
         llm.invoke.side_effect = RuntimeError("LLM unavailable")
         result = enforce_tabular_format(PROSE_OUTPUT, llm)
