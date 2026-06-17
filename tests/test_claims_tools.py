@@ -24,6 +24,7 @@ from agents.supervisor_agent import _keyword_route
 
 # ── Test DB fixture ──────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def engine():
     e = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -31,38 +32,105 @@ def engine():
     Session = sessionmaker(bind=e)
     session = Session()
 
-    session.add_all([
-        AutoPolicy(policy_id="T-001", person_id="P-HIGH", holder_name="High Risk",
-                   state="CA", risk_score=90, status="active",
-                   start_date=date(2020, 1, 1), premium=1500.0,
-                   carrier_name="Geico"),
-        AutoPolicy(policy_id="T-002", person_id="P-MED", holder_name="Med Risk",
-                   state="TX", risk_score=60, status="active",
-                   start_date=date(2020, 1, 1), premium=1000.0,
-                   carrier_name="StateFarm"),
-        AutoPolicy(policy_id="T-003", person_id="P-LOW", holder_name="Low Risk",
-                   state="FL", risk_score=30, status="active",
-                   start_date=date(2020, 1, 1), premium=700.0,
-                   carrier_name="Allstate"),
-    ])
+    session.add_all(
+        [
+            AutoPolicy(
+                policy_id="T-001",
+                person_id="P-HIGH",
+                holder_name="High Risk",
+                state="CA",
+                risk_score=90,
+                status="active",
+                start_date=date(2020, 1, 1),
+                premium=1500.0,
+                carrier_name="Geico",
+            ),
+            AutoPolicy(
+                policy_id="T-002",
+                person_id="P-MED",
+                holder_name="Med Risk",
+                state="TX",
+                risk_score=60,
+                status="active",
+                start_date=date(2020, 1, 1),
+                premium=1000.0,
+                carrier_name="StateFarm",
+            ),
+            AutoPolicy(
+                policy_id="T-003",
+                person_id="P-LOW",
+                holder_name="Low Risk",
+                state="FL",
+                risk_score=30,
+                status="active",
+                start_date=date(2020, 1, 1),
+                premium=700.0,
+                carrier_name="Allstate",
+            ),
+        ]
+    )
 
     # P-HIGH: 4 claims within last 3 years, $35k total, 2 open
-    session.add_all([
-        Claim(claim_id="TC-001", policy_id="T-001", person_id="P-HIGH",
-              claim_date=date(2024, 1, 1), claim_type="Collision", amount=12000, status="Open"),
-        Claim(claim_id="TC-002", policy_id="T-001", person_id="P-HIGH",
-              claim_date=date(2024, 6, 1), claim_type="Theft",     amount=10000, status="Open"),
-        Claim(claim_id="TC-003", policy_id="T-001", person_id="P-HIGH",
-              claim_date=date(2025, 1, 1), claim_type="Liability", amount=8000,  status="Closed"),
-        Claim(claim_id="TC-004", policy_id="T-001", person_id="P-HIGH",
-              claim_date=date(2025, 6, 1), claim_type="Weather",   amount=5000,  status="Closed"),
-        # P-MED: 2 claims, 2 open → score 3 → Medium
-        Claim(claim_id="TC-005", policy_id="T-002", person_id="P-MED",
-              claim_date=date(2025, 3, 1), claim_type="Collision", amount=4000, status="Open"),
-        Claim(claim_id="TC-006", policy_id="T-002", person_id="P-MED",
-              claim_date=date(2025, 9, 1), claim_type="Liability", amount=3000, status="Open"),
-        # P-LOW: no claims seeded
-    ])
+    session.add_all(
+        [
+            Claim(
+                claim_id="TC-001",
+                policy_id="T-001",
+                person_id="P-HIGH",
+                claim_date=date(2024, 1, 1),
+                claim_type="Collision",
+                amount=12000,
+                status="Open",
+            ),
+            Claim(
+                claim_id="TC-002",
+                policy_id="T-001",
+                person_id="P-HIGH",
+                claim_date=date(2024, 6, 1),
+                claim_type="Theft",
+                amount=10000,
+                status="Open",
+            ),
+            Claim(
+                claim_id="TC-003",
+                policy_id="T-001",
+                person_id="P-HIGH",
+                claim_date=date(2025, 1, 1),
+                claim_type="Liability",
+                amount=8000,
+                status="Closed",
+            ),
+            Claim(
+                claim_id="TC-004",
+                policy_id="T-001",
+                person_id="P-HIGH",
+                claim_date=date(2025, 6, 1),
+                claim_type="Weather",
+                amount=5000,
+                status="Closed",
+            ),
+            # P-MED: 2 claims, 2 open → score 3 → Medium
+            Claim(
+                claim_id="TC-005",
+                policy_id="T-002",
+                person_id="P-MED",
+                claim_date=date(2025, 3, 1),
+                claim_type="Collision",
+                amount=4000,
+                status="Open",
+            ),
+            Claim(
+                claim_id="TC-006",
+                policy_id="T-002",
+                person_id="P-MED",
+                claim_date=date(2025, 9, 1),
+                claim_type="Liability",
+                amount=3000,
+                status="Open",
+            ),
+            # P-LOW: no claims seeded
+        ]
+    )
     session.commit()
     session.close()
     return e
@@ -76,6 +144,7 @@ def patch_db(engine, monkeypatch):
 
 
 # ── get_claims_by_person ─────────────────────────────────────────────────────
+
 
 class TestGetClaimsByPerson:
     def test_known_person_returns_dict_with_claims(self):
@@ -107,6 +176,7 @@ class TestGetClaimsByPerson:
 
 
 # ── find_frequent_claimants ──────────────────────────────────────────────────
+
 
 class TestFindFrequentClaimants:
     def test_returns_list(self):
@@ -160,6 +230,7 @@ class TestFindFrequentClaimants:
 
 # ── flag_fraud_risk ──────────────────────────────────────────────────────────
 
+
 class TestFlagFraudRisk:
     def test_high_risk_score(self):
         # P-HIGH: 4 claims (+3) + $35k>$30k (+2) + 2 open claims (+2) = score 7
@@ -182,8 +253,18 @@ class TestFlagFraudRisk:
 
     def test_result_has_required_fields(self):
         result = flag_fraud_risk("P-HIGH")
-        assert all(k in result for k in ("person_id", "fraud_risk", "score", "total_claims",
-                                          "total_amount", "reasons", "recommendation"))
+        assert all(
+            k in result
+            for k in (
+                "person_id",
+                "fraud_risk",
+                "score",
+                "total_claims",
+                "total_amount",
+                "reasons",
+                "recommendation",
+            )
+        )
 
     def test_unknown_person_returns_low(self):
         result = flag_fraud_risk("P-NOBODY")
@@ -191,6 +272,7 @@ class TestFlagFraudRisk:
 
 
 # ── Routing: claims frequency for Geico ─────────────────────────────────────
+
 
 class TestRoutingForGeico:
     def test_geico_frequency_routes_to_claims(self):

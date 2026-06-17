@@ -12,10 +12,10 @@ from typing import Optional
 import os
 import re
 
-from agents.underwriting_agent  import build_underwriting_agent
-from agents.claims_agent        import build_claims_agent
-from agents.analytics_agent     import build_analytics_agent
-from agents.output_validator    import enforce_tabular_format
+from agents.underwriting_agent import build_underwriting_agent
+from agents.claims_agent import build_claims_agent
+from agents.analytics_agent import build_analytics_agent
+from agents.output_validator import enforce_tabular_format
 
 
 # -----------------------------------------------------------
@@ -30,26 +30,79 @@ from agents.output_validator    import enforce_tabular_format
 # any domain question ("Geico's churn rate" → underwriting, "Geico claims" → claims).
 ROUTING_RULES = {
     "underwriting": [
-        "policy", "policies", "risk score", "risk tier", "churn", "non-renew",
-        "renewal rate", "renewal status", "attrition", "premium", "expir",
-        "coverage", "quote", "bind", "holder", "policyholder",
+        "policy",
+        "policies",
+        "risk score",
+        "risk tier",
+        "churn",
+        "non-renew",
+        "renewal rate",
+        "renewal status",
+        "attrition",
+        "premium",
+        "expir",
+        "coverage",
+        "quote",
+        "bind",
+        "holder",
+        "policyholder",
     ],
     "claims": [
-        "claims history", "claims for", "claim filed", "filed a claim",
-        "accident", "collision", "theft", "liability",
-        "suspicious", "siu", "frequent claimant",
-        "person id", "person_id", "claimant",
-        "claim amount", "claim type", "open claim", "closed claim",
+        "claims history",
+        "claims for",
+        "claim filed",
+        "filed a claim",
+        "accident",
+        "collision",
+        "theft",
+        "liability",
+        "suspicious",
+        "siu",
+        "frequent claimant",
+        "person id",
+        "person_id",
+        "claimant",
+        "claim amount",
+        "claim type",
+        "open claim",
+        "closed claim",
     ],
     "analytics": [
-        "loss ratio", "loss sum", "claims trend", "trend", "portfolio", "summary",
-        "overview", "dashboard", "monthly", "quarterly", "annual", "season",
-        "pattern", "kpi", "performance", "profitab", "total premium", "aggregate",
-        "all persons", "per person", "list all", "policy count", "premium sum",
-        "claims count", "fraud flag", "person summary",
-        "carrier breakdown", "policies per carrier", "number of policies",
-        "number of claims", "claims per carrier", "claims by carrier",
-        "insurance companies", "insurance company", "claim volume",
+        "loss ratio",
+        "loss sum",
+        "claims trend",
+        "trend",
+        "portfolio",
+        "summary",
+        "overview",
+        "dashboard",
+        "monthly",
+        "quarterly",
+        "annual",
+        "season",
+        "pattern",
+        "kpi",
+        "performance",
+        "profitab",
+        "total premium",
+        "aggregate",
+        "all persons",
+        "per person",
+        "list all",
+        "policy count",
+        "premium sum",
+        "claims count",
+        "fraud flag",
+        "person summary",
+        "carrier breakdown",
+        "policies per carrier",
+        "number of policies",
+        "number of claims",
+        "claims per carrier",
+        "claims by carrier",
+        "insurance companies",
+        "insurance company",
+        "claim volume",
     ],
 }
 
@@ -72,8 +125,10 @@ def _keyword_route(question: str) -> Optional[str]:
 
 def _llm_route(question: str, llm) -> str:
     """LLM-based routing fallback for ambiguous questions."""
-    response = llm.invoke([
-        SystemMessage(content="""You are a routing assistant for an insurance chatbot.
+    response = llm.invoke(
+        [
+            SystemMessage(
+                content="""You are a routing assistant for an insurance chatbot.
 Classify the user question into exactly one category based on WHICH DATABASE TABLE it queries:
 
 - underwriting: queries the policy table only — policy lookup, risk scores, premiums,
@@ -92,9 +147,11 @@ Key rules:
   Route based on the data being requested, not the company name.
 - Trend questions always go to analytics even if the word "claims" appears.
 
-Reply with ONLY one word: underwriting, claims, or analytics."""),
-        HumanMessage(content=question)
-    ])
+Reply with ONLY one word: underwriting, claims, or analytics."""
+            ),
+            HumanMessage(content=question),
+        ]
+    )
     answer = response.content.strip().lower()
     if answer in ("underwriting", "claims", "analytics"):
         return answer
@@ -105,6 +162,7 @@ Reply with ONLY one word: underwriting, claims, or analytics."""),
 # Supervisor
 # -----------------------------------------------------------
 
+
 class SupervisorAgent:
     """
     Entry point for all user questions.
@@ -113,19 +171,17 @@ class SupervisorAgent:
 
     def __init__(self, db_url: str = None):
         self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0,
-            groq_api_key=os.getenv("GROQ_API_KEY")
+            model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
         )
 
         # Build all specialist agents (shared LLM instance)
         self.agents = {
             "underwriting": build_underwriting_agent(db_url=db_url, llm=self.llm),
-            "claims":       build_claims_agent(llm=self.llm),
-            "analytics":    build_analytics_agent(llm=self.llm),
+            "claims": build_claims_agent(llm=self.llm),
+            "analytics": build_analytics_agent(llm=self.llm),
         }
 
-        self.routing_log = []   # track routing decisions for debugging
+        self.routing_log = []  # track routing decisions for debugging
 
     def route(self, question: str) -> str:
         """Determine which specialist should handle the question."""
@@ -139,7 +195,7 @@ class SupervisorAgent:
         Returns: { answer, routed_to, question }
         """
         domain = self.route(question)
-        agent  = self.agents[domain]
+        agent = self.agents[domain]
 
         try:
             answer = agent.run(question)
@@ -148,9 +204,9 @@ class SupervisorAgent:
             answer = f"Error in {domain} agent: {str(e)}"
 
         return {
-            "question":   question,
-            "routed_to":  domain,
-            "answer":     answer,
+            "question": question,
+            "routed_to": domain,
+            "answer": answer,
         }
 
     def get_routing_log(self) -> list:
@@ -163,11 +219,10 @@ class SupervisorAgent:
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
+
     load_dotenv()
 
-    supervisor = SupervisorAgent(
-        db_url=os.getenv("DATABASE_URL")
-    )
+    supervisor = SupervisorAgent(db_url=os.getenv("DATABASE_URL"))
 
     test_questions = [
         "What is the risk score for policy A-10234?",
