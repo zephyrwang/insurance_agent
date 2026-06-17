@@ -30,13 +30,101 @@ st.set_page_config(
 # ── Custom CSS ─────────────────────────────────────────────
 st.markdown("""
 <style>
-/* Main background */
-.main { background-color: #f8f9fb; }
+/* ── Theme tokens ─────────────────────────────────────── */
+:root {
+    --bg-main:        #f8f9fb;
+    --bg-card:        #ffffff;
+    --bg-sidebar:     #ffffff;
+    --bg-surface:     #f1f3f9;
+    --text-primary:   #1a1a1a;
+    --text-secondary: #666666;
+    --text-muted:     #aaaaaa;
+    --border:         #e8eaed;
+    --routing-bg:     #f1f3f9;
+    --routing-border: #7F77DD;
+    --routing-text:   #534AB7;
+    --badge-uw-bg:    #E1F5EE;  --badge-uw-fg: #0F6E56;
+    --badge-cl-bg:    #E6F1FB;  --badge-cl-fg: #185FA5;
+    --badge-an-bg:    #FAEEDA;  --badge-an-fg: #633806;
+    --badge-sv-bg:    #EEF0F8;  --badge-sv-fg: #3C3489;
+    --card-uw-bg:     #E1F5EE;  --card-uw-title: #0F6E56;
+    --card-cl-bg:     #E6F1FB;  --card-cl-title: #185FA5;
+    --card-an-bg:     #FAEEDA;  --card-an-title: #633806;
+    --shadow-sm:      0 2px 8px rgba(0,0,0,0.08);
+    --shadow-md:      0 4px 14px rgba(0,0,0,0.14);
+}
 
-/* Chat message bubbles */
+html[data-theme="dark"] {
+    --bg-main:        #0f1117;
+    --bg-card:        #1e2130;
+    --bg-sidebar:     #161827;
+    --bg-surface:     #252840;
+    --text-primary:   #e8eaed;
+    --text-secondary: #9aa0ac;
+    --text-muted:     #5f6368;
+    --border:         #2d3142;
+    --routing-bg:     #252840;
+    --routing-border: #7F77DD;
+    --routing-text:   #A89EF5;
+    --badge-uw-bg:    #0F3828;  --badge-uw-fg: #4DC99A;
+    --badge-cl-bg:    #0D2B4A;  --badge-cl-fg: #5BA3D9;
+    --badge-an-bg:    #3A2008;  --badge-an-fg: #E09B4E;
+    --badge-sv-bg:    #1E1B40;  --badge-sv-fg: #9890E8;
+    --card-uw-bg:     #0F3828;  --card-uw-title: #4DC99A;
+    --card-cl-bg:     #0D2B4A;  --card-cl-title: #5BA3D9;
+    --card-an-bg:     #3A2008;  --card-an-title: #E09B4E;
+    --shadow-sm:      0 2px 8px rgba(0,0,0,0.32);
+    --shadow-md:      0 4px 14px rgba(0,0,0,0.44);
+}
+
+/* ── Smooth transitions on theme switch ──────────────── */
+*, *::before, *::after {
+    transition: background-color 0.3s ease, color 0.3s ease,
+                border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ── App-level backgrounds ───────────────────────────── */
+.main,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > section.main {
+    background-color: var(--bg-main) !important;
+}
+
+html[data-theme="dark"] [data-testid="stHeader"] {
+    background-color: var(--bg-main) !important;
+    border-bottom-color: var(--border) !important;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+section[data-testid="stSidebar"] {
+    background: var(--bg-sidebar) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+html[data-theme="dark"] section[data-testid="stSidebar"] p,
+html[data-theme="dark"] section[data-testid="stSidebar"] label,
+html[data-theme="dark"] section[data-testid="stSidebar"] span:not(.agent-badge),
+html[data-theme="dark"] section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    color: var(--text-primary) !important;
+}
+
+/* ── General text in dark mode ───────────────────────── */
+html[data-theme="dark"] [data-testid="stMarkdownContainer"] p,
+html[data-theme="dark"] [data-testid="stMarkdownContainer"] strong,
+html[data-theme="dark"] [data-testid="stMarkdownContainer"] em,
+html[data-theme="dark"] [data-testid="stMarkdownContainer"] li {
+    color: var(--text-primary) !important;
+}
+
+html[data-theme="dark"] h1, html[data-theme="dark"] h2,
+html[data-theme="dark"] h3, html[data-theme="dark"] h4 {
+    color: var(--text-primary) !important;
+}
+
+/* ── Chat bubbles ────────────────────────────────────── */
 .user-bubble {
     background: #1D9E75;
-    color: white;
+    color: #ffffff;
     padding: 12px 16px;
     border-radius: 18px 18px 4px 18px;
     margin: 4px 0;
@@ -45,17 +133,20 @@ st.markdown("""
     font-size: 14px;
     line-height: 1.5;
 }
+
 .bot-bubble {
-    background: white;
-    color: #1a1a1a;
+    background: var(--bg-card);
+    color: var(--text-primary);
     padding: 12px 16px;
     border-radius: 18px 18px 18px 4px;
     margin: 4px 0;
     max-width: 85%;
-    border: 1px solid #e8eaed;
+    border: 1px solid var(--border);
     font-size: 14px;
     line-height: 1.5;
 }
+
+/* ── Agent badges ────────────────────────────────────── */
 .agent-badge {
     display: inline-block;
     font-size: 11px;
@@ -64,47 +155,171 @@ st.markdown("""
     border-radius: 12px;
     margin-bottom: 6px;
 }
-.badge-underwriting { background: #E1F5EE; color: #0F6E56; }
-.badge-claims       { background: #E6F1FB; color: #185FA5; }
-.badge-analytics    { background: #FAEEDA; color: #633806; }
-.badge-supervisor   { background: #EEF0F8; color: #3C3489; }
+.badge-underwriting { background: var(--badge-uw-bg); color: var(--badge-uw-fg) !important; }
+.badge-claims       { background: var(--badge-cl-bg); color: var(--badge-cl-fg) !important; }
+.badge-analytics    { background: var(--badge-an-bg); color: var(--badge-an-fg) !important; }
+.badge-supervisor   { background: var(--badge-sv-bg); color: var(--badge-sv-fg) !important; }
 
-/* Routing indicator */
+/* ── Routing box ─────────────────────────────────────── */
 .routing-box {
-    background: #f1f3f9;
-    border-left: 3px solid #7F77DD;
+    background: var(--routing-bg);
+    border-left: 3px solid var(--routing-border);
     padding: 8px 12px;
     border-radius: 0 8px 8px 0;
     font-size: 12px;
-    color: #534AB7;
+    color: var(--routing-text);
     margin: 4px 0 8px 0;
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: #ffffff;
-    border-right: 1px solid #e8eaed;
+/* ── Capability cards ────────────────────────────────── */
+.agent-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
 }
+.agent-card-uw { background: var(--card-uw-bg); }
+.agent-card-cl { background: var(--card-cl-bg); }
+.agent-card-an { background: var(--card-an-bg); }
+.agent-card-title { font-size: 13px; font-weight: 500; }
+.agent-card-uw .agent-card-title { color: var(--card-uw-title); }
+.agent-card-cl .agent-card-title { color: var(--card-cl-title); }
+.agent-card-an .agent-card-title { color: var(--card-an-title); }
+.agent-card-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
-/* Input area */
+/* ── Chat helpers ────────────────────────────────────── */
+.chat-ts          { font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+.chat-placeholder { text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 14px; }
+.routing-entry    { font-size: 11px; color: var(--text-secondary); margin: 2px 0; }
+.routing-entry-q  { color: var(--text-muted); }
+
+/* ── Input ───────────────────────────────────────────── */
 .stTextInput > div > div > input {
     border-radius: 24px !important;
-    border: 1.5px solid #e8eaed !important;
+    border: 1.5px solid var(--border) !important;
     padding: 10px 18px !important;
     font-size: 14px !important;
+    background-color: var(--bg-card) !important;
+    color: var(--text-primary) !important;
 }
 
-/* Metric cards */
+/* ── Metric cards ────────────────────────────────────── */
 div[data-testid="metric-container"] {
-    background: white;
-    border: 1px solid #e8eaed;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
     border-radius: 10px;
     padding: 12px;
 }
+html[data-theme="dark"] div[data-testid="metric-container"] label,
+html[data-theme="dark"] [data-testid="stMetricValue"],
+html[data-theme="dark"] [data-testid="stMetricLabel"] {
+    color: var(--text-primary) !important;
+}
 
-/* Hide Streamlit branding */
+/* ── Streamlit buttons in dark mode ──────────────────── */
+html[data-theme="dark"] .stButton button {
+    background-color: var(--bg-surface) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border) !important;
+}
+html[data-theme="dark"] .stButton button:hover {
+    background-color: var(--bg-card) !important;
+    border-color: var(--routing-border) !important;
+}
+html[data-theme="dark"] .stButton button[kind="primary"] {
+    background-color: #1D9E75 !important;
+    color: #ffffff !important;
+    border-color: #1D9E75 !important;
+}
+
+/* ── Expander / divider / alerts in dark mode ────────── */
+html[data-theme="dark"] [data-testid="stExpander"] {
+    border-color: var(--border) !important;
+    background-color: var(--bg-card) !important;
+}
+html[data-theme="dark"] [data-testid="stExpander"] summary {
+    color: var(--text-primary) !important;
+}
+html[data-theme="dark"] hr { border-color: var(--border) !important; }
+html[data-theme="dark"] [data-testid="stAlert"] {
+    background-color: var(--bg-surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ── DataFrame in dark mode ──────────────────────────── */
+html[data-theme="dark"] [data-testid="stDataFrame"] iframe {
+    filter: invert(0.9) hue-rotate(180deg);
+}
+
+/* ── Theme toggle button ─────────────────────────────── */
+#theme-toggle {
+    position: fixed;
+    top: 14px;
+    right: 24px;
+    z-index: 9999;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    background: var(--bg-card);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+    box-shadow: var(--shadow-sm);
+    outline: none;
+}
+#theme-toggle:hover  { transform: scale(1.1); box-shadow: var(--shadow-md); }
+#theme-toggle:focus-visible { outline: 2px solid #1D9E75; outline-offset: 3px; }
+#theme-toggle .t-sun  { display: none; }
+#theme-toggle .t-moon { display: block; }
+html[data-theme="dark"] #theme-toggle .t-sun  { display: block; }
+html[data-theme="dark"] #theme-toggle .t-moon { display: none; }
+
+/* ── Hide Streamlit branding ─────────────────────────── */
 #MainMenu, footer { visibility: hidden; }
 </style>
+""", unsafe_allow_html=True)
+
+# ── Theme toggle button ─────────────────────────────────
+st.markdown("""
+<button id="theme-toggle" aria-label="Toggle dark/light theme" title="Toggle theme" tabindex="0">
+    <span class="t-moon">🌙</span>
+    <span class="t-sun">☀️</span>
+</button>
+<script>
+(function () {
+    const html = document.documentElement;
+    const KEY  = 'insurance-agent-theme';
+
+    function applyTheme(t) {
+        if (t === 'dark') html.setAttribute('data-theme', 'dark');
+        else              html.removeAttribute('data-theme');
+    }
+
+    applyTheme(localStorage.getItem(KEY) || 'light');
+
+    function wire() {
+        const btn = document.getElementById('theme-toggle');
+        if (!btn || btn._wired) return;
+        btn._wired = true;
+        btn.addEventListener('click', () => {
+            const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            applyTheme(next);
+            localStorage.setItem(KEY, next);
+        });
+        btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+        });
+    }
+
+    wire();
+    new MutationObserver(wire).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
 """, unsafe_allow_html=True)
 
 
@@ -317,9 +532,9 @@ with st.sidebar:
             meta = AGENT_META.get(entry["routed_to"], {})
             icon = meta.get("icon", "🤖")
             st.markdown(
-                f'<div style="font-size:11px; color:#666; margin:2px 0;">'
+                f'<div class="routing-entry">'
                 f'{icon} <b>{entry["routed_to"].title()}</b><br>'
-                f'<span style="color:#999">{entry["question"][:40]}...</span>'
+                f'<span class="routing-entry-q">{entry["question"][:40]}...</span>'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -364,29 +579,23 @@ st.markdown(
 col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown("""
-    <div style="background:#E1F5EE; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
-        <div style="font-size:13px; font-weight:500; color:#0F6E56;">📋 Underwriting Agent</div>
-        <div style="font-size:12px; color:#666; margin-top:4px;">
-        Policy lookup · Risk scores · Churn rates · Carrier analysis
-        </div>
+    <div class="agent-card agent-card-uw">
+        <div class="agent-card-title">📋 Underwriting Agent</div>
+        <div class="agent-card-desc">Policy lookup · Risk scores · Churn rates · Carrier analysis</div>
     </div>
     """, unsafe_allow_html=True)
 with col2:
     st.markdown("""
-    <div style="background:#E6F1FB; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
-        <div style="font-size:13px; font-weight:500; color:#185FA5;">📁 Claims Agent</div>
-        <div style="font-size:12px; color:#666; margin-top:4px;">
-        Claims history · Frequent claimants · Fraud detection · SIU flags
-        </div>
+    <div class="agent-card agent-card-cl">
+        <div class="agent-card-title">📁 Claims Agent</div>
+        <div class="agent-card-desc">Claims history · Frequent claimants · Fraud detection · SIU flags</div>
     </div>
     """, unsafe_allow_html=True)
 with col3:
     st.markdown("""
-    <div style="background:#FAEEDA; border:1px solid #e8eaed; border-radius:10px; padding:14px;">
-        <div style="font-size:13px; font-weight:500; color:#633806;">📊 Analytics Agent</div>
-        <div style="font-size:12px; color:#666; margin-top:4px;">
-        Loss ratios · Portfolio summary · Trend analysis · KPIs
-        </div>
+    <div class="agent-card agent-card-an">
+        <div class="agent-card-title">📊 Analytics Agent</div>
+        <div class="agent-card-desc">Loss ratios · Portfolio summary · Trend analysis · KPIs</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -397,7 +606,7 @@ chat_container = st.container()
 with chat_container:
     if not st.session_state.messages:
         st.markdown(
-            '<div style="text-align:center; color:#aaa; padding:40px 0; font-size:14px;">'
+            '<div class="chat-placeholder">'
             '💬 Ask a question to get started, or pick one from the sidebar.'
             '</div>',
             unsafe_allow_html=True
@@ -425,7 +634,7 @@ with chat_container:
             st.markdown(
                 f'<div style="margin:8px 0 2px 0;">'
                 f'<span class="agent-badge {badge_class}">{icon} {label}</span>'
-                f'<span style="font-size:11px; color:#aaa; margin-left:8px;">{ts}</span>'
+                f'<span class="chat-ts">{ts}</span>'
                 f'{routing_html}'
                 f'</div>',
                 unsafe_allow_html=True
