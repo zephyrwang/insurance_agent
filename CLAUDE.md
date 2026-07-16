@@ -22,7 +22,7 @@ uvicorn api.main:app --reload --port 8000   # docs at /docs
 python -m agents.supervisor_agent
 ```
 
-There is no test suite, linter, or build step configured in this repo.
+Tests live in `tests/` (run with `pytest`). Formatting uses `black` (line length 100, config in `pyproject.toml`; install dev tools via `pip install -r requirements-dev.txt`). There is no linter or build step configured.
 
 ### Environment
 

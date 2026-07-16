@@ -285,7 +285,7 @@ class MockSupervisorAgent:
             return "claims"
         return "underwriting"
 
-    def run(self, question: str) -> dict:
+    def run(self, question: str, session_id: str = "default") -> dict:
         domain = self._route(question)
         self.routing_log.append({"question": question, "routed_to": domain})
         answer = random.choice(MOCK_RESPONSES[domain])

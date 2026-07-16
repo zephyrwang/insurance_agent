@@ -52,7 +52,7 @@ def startup():
 
 class ChatRequest(BaseModel):
     question: str
-    session_id: str = "default"  # future: per-session memory
+    session_id: str = "default"  # scopes conversation memory per client session
 
 
 class ChatResponse(BaseModel):
@@ -76,7 +76,7 @@ def chat(req: ChatRequest):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    result = supervisor.run(req.question)
+    result = supervisor.run(req.question, session_id=req.session_id)
     return ChatResponse(
         question=result["question"],
         answer=result["answer"],

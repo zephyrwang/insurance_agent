@@ -54,6 +54,18 @@ Table: claims
 """
 
 
+MAX_SQL_ROWS = 200
+
+
+def _is_single_select(sql: str) -> bool:
+    """Allow only one SELECT (or WITH … SELECT) statement — the LLM output is
+    executed verbatim, so anything else (DELETE, UPDATE, stacked statements) is refused."""
+    stripped = sql.strip().rstrip(";").strip()
+    if ";" in stripped:
+        return False
+    return re.match(r"(?i)^(select|with)\b", stripped) is not None
+
+
 def _build_nl_sql_tool(db_url: str, llm):
     """Replace SQLDatabaseChain with a clean NL→SQL executor."""
     connect_args = {"check_same_thread": False} if "sqlite" in db_url else {}
@@ -82,16 +94,28 @@ Rules:
         # Strip any markdown code fences the LLM may add
         sql = re.sub(r"```(?:sql)?", "", sql, flags=re.IGNORECASE).replace("```", "").strip()
 
+        if not _is_single_select(sql):
+            return (
+                "Refused: only a single read-only SELECT query is allowed.\n"
+                f"Generated SQL was: {sql}"
+            )
+
         try:
             with engine.connect() as conn:
-                rows = conn.execute(sa_text(sql)).mappings().fetchall()
+                if engine.dialect.name == "sqlite":
+                    conn.exec_driver_sql("PRAGMA query_only = ON")
+                result = conn.execute(sa_text(sql)).mappings()
+                rows = result.fetchmany(MAX_SQL_ROWS + 1)
+            truncated = len(rows) > MAX_SQL_ROWS
+            rows = rows[:MAX_SQL_ROWS]
             if not rows:
                 return "No results found."
             cols = list(rows[0].keys())
             header = " | ".join(cols)
             divider = " | ".join("---" for _ in cols)
             body = "\n".join(" | ".join(str(r[c]) for c in cols) for r in rows)
-            return f"{header}\n{divider}\n{body}"
+            note = f"\n(Showing first {MAX_SQL_ROWS} rows.)" if truncated else ""
+            return f"{header}\n{divider}\n{body}{note}"
         except Exception as e:
             return f"SQL error: {e}\nGenerated SQL was: {sql}"
 

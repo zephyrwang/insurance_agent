@@ -79,8 +79,8 @@ def find_frequent_claimants(input_str: str = "") -> list:
                     """
             SELECT
                 c.person_id,
-                COUNT(DISTINCT c.claim_id) AS claims_count,
-                SUM(DISTINCT c.amount)     AS total_amount,
+                COUNT(c.claim_id)          AS claims_count,
+                SUM(c.amount)              AS total_amount,
                 p.state,
                 p.risk_score,
                 p.carrier_name

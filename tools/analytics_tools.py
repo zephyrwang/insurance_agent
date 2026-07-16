@@ -43,16 +43,25 @@ def get_loss_ratio(input_str: str) -> dict:
 
     session = _session()
     try:
+        # Claims are pre-aggregated per policy so a policy with N claims
+        # contributes its premium once, not N times.
         result = (
             session.execute(
                 text(
                     f"""
             SELECT
-                SUM(p.premium)  AS total_premium,
-                SUM(c.amount)   AS total_claims,
-                ROUND(100.0 * SUM(c.amount) / NULLIF(SUM(p.premium), 0), 2) AS loss_ratio_pct
+                SUM(p.premium)                  AS total_premium,
+                SUM(COALESCE(cl.claims_amt, 0)) AS total_claims,
+                ROUND(
+                    100.0 * SUM(COALESCE(cl.claims_amt, 0)) / NULLIF(SUM(p.premium), 0), 2
+                )                               AS loss_ratio_pct
             FROM auto_policies p
-            LEFT JOIN claims c ON p.policy_id = c.policy_id AND {cw}
+            LEFT JOIN (
+                SELECT c.policy_id, SUM(c.amount) AS claims_amt
+                FROM claims c
+                WHERE {cw}
+                GROUP BY c.policy_id
+            ) cl ON cl.policy_id = p.policy_id
             WHERE {pw}
         """
                 ),
@@ -257,6 +266,9 @@ def get_person_summary(input_str: str = "") -> list:
     """Aggregate view per person: policy count, premiums, claims, loss ratio, fraud flag."""
     session = _session()
     try:
+        # Claims are pre-aggregated per person before joining, otherwise a person
+        # with M policies and N claims fans out to M×N rows and every SUM/COUNT
+        # is multiplied.
         rows = (
             session.execute(
                 text(
@@ -271,17 +283,25 @@ def get_person_summary(input_str: str = "") -> list:
                 CASE WHEN MAX(p.risk_score) >= 75 THEN '🔴 High'
                      WHEN MAX(p.risk_score) >= 50 THEN '🟡 Medium'
                      ELSE '🟢 Low' END                                          AS risk_tier,
-                COUNT(c.claim_id)                                               AS claims_count,
-                ROUND(COALESCE(SUM(c.amount), 0), 2)                           AS total_claims,
+                COALESCE(MAX(c.claims_count), 0)                                AS claims_count,
+                ROUND(COALESCE(MAX(c.total_amount), 0), 2)                      AS total_claims,
                 ROUND(
-                    100.0 * COALESCE(SUM(CASE WHEN c.status='Closed' THEN c.amount ELSE 0 END), 0)
+                    100.0 * COALESCE(MAX(c.closed_amount), 0)
                     / NULLIF(SUM(p.premium), 0), 2
                 )                                                               AS loss_ratio_pct,
-                CASE WHEN COUNT(c.claim_id) >= 4 THEN '🔴 High'
-                     WHEN COUNT(c.claim_id) >= 2 THEN '🟡 Medium'
+                CASE WHEN COALESCE(MAX(c.claims_count), 0) >= 4 THEN '🔴 High'
+                     WHEN COALESCE(MAX(c.claims_count), 0) >= 2 THEN '🟡 Medium'
                      ELSE '🟢 Low' END                                          AS fraud_flag
             FROM auto_policies p
-            LEFT JOIN claims c ON p.person_id = c.person_id
+            LEFT JOIN (
+                SELECT
+                    person_id,
+                    COUNT(claim_id) AS claims_count,
+                    SUM(amount)     AS total_amount,
+                    SUM(CASE WHEN status = 'Closed' THEN amount ELSE 0 END) AS closed_amount
+                FROM claims
+                GROUP BY person_id
+            ) c ON c.person_id = p.person_id
             WHERE p.status = 'active'
             GROUP BY p.person_id
             ORDER BY total_claims DESC

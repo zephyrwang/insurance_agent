@@ -75,7 +75,12 @@ def get_churn_rate(input_str: str) -> dict:
     carrier_match = re.search(
         r"carrier[= ]+([A-Za-z ]+?)(?:\s+period|$|\s+Q[1-4]|\s+20\d{2})", input_str, re.I
     )
-    carrier = carrier_match.group(1).strip() if carrier_match else input_str.split()[0]
+    if carrier_match:
+        carrier = carrier_match.group(1).strip()
+    elif input_str.split():
+        carrier = input_str.split()[0]
+    else:
+        return {"error": "No carrier name given. Expected e.g. 'carrier=StateFarm period=Q1 2026'."}
     carrier_norm = {
         "state farm": "StateFarm",
         "statefarm": "StateFarm",

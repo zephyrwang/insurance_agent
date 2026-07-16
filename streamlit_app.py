@@ -8,10 +8,12 @@ Make sure you have set GROQ_API_KEY in your .env file.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import json
 import time
 import re
+import uuid
 import pandas as pd
 from typing import Optional, List
 from datetime import datetime
@@ -256,8 +258,8 @@ html[data-theme="dark"] [data-testid="stDataFrame"] iframe {
 #theme-toggle {
     position: fixed;
     top: 14px;
-    right: 24px;
-    z-index: 9999;
+    right: 119px;
+    z-index: 999991;
     width: 40px;
     height: 40px;
     border-radius: 50%;
@@ -288,14 +290,22 @@ html[data-theme="dark"] #theme-toggle .t-moon { display: none; }
 )
 
 # ── Theme toggle button ─────────────────────────────────
+# Button injected into main page DOM via st.markdown.
+# Script runs inside a same-origin iframe (components.html) and reaches
+# the main page via window.parent — necessary because React's
+# dangerouslySetInnerHTML never executes injected <script> tags.
 st.markdown("""
 <button id="theme-toggle" aria-label="Toggle dark/light theme" title="Toggle theme" tabindex="0">
     <span class="t-moon">🌙</span>
     <span class="t-sun">☀️</span>
 </button>
+""", unsafe_allow_html=True)
+
+components.html("""
 <script>
 (function () {
-    const html = document.documentElement;
+    const doc  = window.parent.document;
+    const html = doc.documentElement;
     const KEY  = 'insurance-agent-theme';
 
     function applyTheme(t) {
@@ -303,16 +313,16 @@ st.markdown("""
         else              html.removeAttribute('data-theme');
     }
 
-    applyTheme(localStorage.getItem(KEY) || 'light');
+    applyTheme(window.parent.localStorage.getItem(KEY) || 'light');
 
     function wire() {
-        const btn = document.getElementById('theme-toggle');
+        const btn = doc.getElementById('theme-toggle');
         if (!btn || btn._wired) return;
         btn._wired = true;
         btn.addEventListener('click', () => {
             const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             applyTheme(next);
-            localStorage.setItem(KEY, next);
+            window.parent.localStorage.setItem(KEY, next);
         });
         btn.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
@@ -320,10 +330,10 @@ st.markdown("""
     }
 
     wire();
-    new MutationObserver(wire).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(wire).observe(doc.body, { childList: true, subtree: true });
 })();
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
 
 
 # ── Agent color / label maps ────────────────────────────────
@@ -450,6 +460,10 @@ if "total_queries" not in st.session_state:
     st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0}
 if "msg_id_counter" not in st.session_state:
     st.session_state.msg_id_counter = 0
+# The supervisor is shared across all browser sessions (@st.cache_resource),
+# so each session needs its own id to keep conversation memory isolated.
+if "session_id" not in st.session_state:
+    st.session_state.session_id = uuid.uuid4().hex
 if "ratings" not in st.session_state:
     st.session_state.ratings = {}  # {msg_id: "satisfied" | "basic" | "incorrect"}
 
@@ -731,7 +745,7 @@ if question_to_process and question_to_process.strip():
     else:
         with st.spinner("Thinking..."):
             try:
-                result = supervisor.run(question)
+                result = supervisor.run(question, session_id=st.session_state.session_id)
                 domain = result["routed_to"]
                 answer = result["answer"]
 

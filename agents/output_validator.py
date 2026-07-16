@@ -43,6 +43,11 @@ def enforce_tabular_format(answer: str, llm) -> str:
     Only triggers for the missing-table violation; a missing Comment section does
     not cause a retry.  Returns the original answer on any error.
     """
+    # Deferrals ("Please ask the Claims Agent") carry no data — reformatting
+    # them into a table would just produce a nonsense one-cell table.
+    if re.search(r"please ask the \w+ agent", answer, re.IGNORECASE):
+        return answer
+
     violations = validate_tabular_output(answer)
     if "no_markdown_table" not in violations:
         return answer

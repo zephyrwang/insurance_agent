@@ -61,7 +61,10 @@ ROUTING_RULES = {
         "frequent claimant",
         "person id",
         "person_id",
+        "person",
         "claimant",
+        "claim frequency",
+        "claims frequency",
         "claim amount",
         "claim type",
         "open claim",
@@ -98,6 +101,7 @@ ROUTING_RULES = {
         "policies per carrier",
         "number of policies",
         "number of claims",
+        "how many claims",
         "claims per carrier",
         "claims by carrier",
         "insurance companies",
@@ -136,11 +140,10 @@ Classify the user question into exactly one category based on WHICH DATABASE TAB
 - claims: queries the claims table for a specific person or policy — claims history,
   frequent claimants by person, fraud risk for a person, SIU referrals.
 - analytics: aggregates or joins BOTH tables, OR asks about carrier/company-level totals,
-  OR asks about trends over time. "Number of claims per carrier", "claims by company",
-  "how many claims did Geico have in 2025" → analytics (requires joining claims + policies
-  to get carrier_name, which is not in the claims table).
-- analytics: aggregates or joins BOTH tables, or asks about trends over time —
-  loss ratios, portfolio summaries, monthly/quarterly/annual trends, KPIs.
+  OR asks about trends over time — loss ratios, portfolio summaries, monthly/quarterly/annual
+  trends, KPIs. "Number of claims per carrier", "claims by company", "how many claims did
+  Geico have in 2025" → analytics (requires joining claims + policies to get carrier_name,
+  which is not in the claims table).
 
 Key rules:
 - Carrier/company names (Geico, StateFarm, Allstate, …) are NOT routing signals on their own.
@@ -169,19 +172,35 @@ class SupervisorAgent:
     Routes to the appropriate specialist agent and returns the response.
     """
 
+    MAX_SESSIONS = 100  # evict oldest session's agents beyond this
+
     def __init__(self, db_url: str = None):
         self.llm = ChatGroq(
             model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
         )
+        self.db_url = db_url
 
-        # Build all specialist agents (shared LLM instance)
-        self.agents = {
-            "underwriting": build_underwriting_agent(db_url=db_url, llm=self.llm),
-            "claims": build_claims_agent(llm=self.llm),
-            "analytics": build_analytics_agent(llm=self.llm),
-        }
+        # Specialist agents are built per session (shared LLM instance) so
+        # conversation memory is never shared between users.
+        self._session_agents: dict[str, dict] = {}
 
         self.routing_log = []  # track routing decisions for debugging
+
+    def _get_agents(self, session_id: str) -> dict:
+        """Get (or lazily build) the specialist agents for one session."""
+        if session_id not in self._session_agents:
+            if len(self._session_agents) >= self.MAX_SESSIONS:
+                self._session_agents.pop(next(iter(self._session_agents)))
+            self._session_agents[session_id] = {
+                "underwriting": build_underwriting_agent(db_url=self.db_url, llm=self.llm),
+                "claims": build_claims_agent(llm=self.llm),
+                "analytics": build_analytics_agent(llm=self.llm),
+            }
+        return self._session_agents[session_id]
+
+    @property
+    def agents(self) -> dict:
+        return self._get_agents("default")
 
     def route(self, question: str) -> str:
         """Determine which specialist should handle the question."""
@@ -189,13 +208,13 @@ class SupervisorAgent:
         self.routing_log.append({"question": question, "routed_to": domain})
         return domain
 
-    def run(self, question: str) -> dict:
+    def run(self, question: str, session_id: str = "default") -> dict:
         """
         Main entry point.
         Returns: { answer, routed_to, question }
         """
         domain = self.route(question)
-        agent = self.agents[domain]
+        agent = self._get_agents(session_id)[domain]
 
         try:
             answer = agent.run(question)
