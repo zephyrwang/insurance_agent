@@ -3,13 +3,31 @@ Underwriting tools — policy lookup, risk scoring, churn rate.
 """
 
 from datetime import date, timedelta
-from langchain.tools import Tool
+from typing import Optional
+
+from langchain.tools import StructuredTool
+from langchain_core.pydantic_v1 import BaseModel, Field
 from sqlalchemy import text
+
 from db.database import get_session
 
 
 def _session():
     return get_session()
+
+
+CARRIER_ALIASES = {
+    "state farm": "StateFarm",
+    "statefarm": "StateFarm",
+    "allstate": "Allstate",
+    "geico": "GEICO",
+    "progressive": "Progressive",
+    "nationwide": "Nationwide",
+}
+
+
+def normalize_carrier(carrier: str) -> str:
+    return CARRIER_ALIASES.get(carrier.strip().lower(), carrier.strip())
 
 
 def get_risk_score(policy_id: str) -> dict:
@@ -46,51 +64,35 @@ def get_risk_score(policy_id: str) -> dict:
         session.close()
 
 
-def _parse_quarter(text_str: str):
-    import re
+_QUARTER_BOUNDS = {
+    "q1": (1, 3, 31),
+    "first": (1, 3, 31),
+    "q2": (4, 6, 30),
+    "second": (4, 6, 30),
+    "q3": (7, 9, 30),
+    "third": (7, 9, 30),
+    "q4": (10, 12, 31),
+    "fourth": (10, 12, 31),
+}
 
-    t = text_str.lower()
-    quarter_map = {
-        "q1": (1, 1, 3, 31),
-        "first": (1, 1, 3, 31),
-        "q2": (4, 1, 6, 30),
-        "second": (4, 1, 6, 30),
-        "q3": (7, 1, 9, 30),
-        "third": (7, 1, 9, 30),
-        "q4": (10, 1, 12, 31),
-        "fourth": (10, 1, 12, 31),
-    }
-    year_match = re.search(r"\b(20\d{2})\b", t)
-    year = int(year_match.group(1)) if year_match else date.today().year
-    for key, (sm, sd, em, ed) in quarter_map.items():
-        if key in t:
-            return date(year, sm, sd), date(year, em, ed)
+
+def _period_bounds(quarter: Optional[str], year: Optional[int]):
+    """Resolve (start, end) dates: quarter+year > year alone > trailing 90 days."""
+    if quarter:
+        q = quarter.strip().lower()
+        for key, (sm, em, ed) in _QUARTER_BOUNDS.items():
+            if key in q:
+                y = year or date.today().year
+                return date(y, sm, 1), date(y, em, ed)
+    if year:
+        return date(year, 1, 1), date(year, 12, 31)
     today = date.today()
     return today - timedelta(days=90), today
 
 
-def get_churn_rate(input_str: str) -> dict:
-    import re
-
-    carrier_match = re.search(
-        r"carrier[= ]+([A-Za-z ]+?)(?:\s+period|$|\s+Q[1-4]|\s+20\d{2})", input_str, re.I
-    )
-    if carrier_match:
-        carrier = carrier_match.group(1).strip()
-    elif input_str.split():
-        carrier = input_str.split()[0]
-    else:
-        return {"error": "No carrier name given. Expected e.g. 'carrier=StateFarm period=Q1 2026'."}
-    carrier_norm = {
-        "state farm": "StateFarm",
-        "statefarm": "StateFarm",
-        "allstate": "Allstate",
-        "geico": "GEICO",
-        "progressive": "Progressive",
-        "nationwide": "Nationwide",
-    }.get(carrier.lower(), carrier)
-
-    start_date, end_date = _parse_quarter(input_str)
+def get_churn_rate(carrier: str, quarter: Optional[str] = None, year: Optional[int] = None) -> dict:
+    carrier_norm = normalize_carrier(carrier)
+    start_date, end_date = _period_bounds(quarter, year)
 
     session = _session()
     try:
@@ -135,20 +137,34 @@ def get_churn_rate(input_str: str) -> dict:
         session.close()
 
 
+class RiskScoreInput(BaseModel):
+    policy_id: str = Field(description="Policy id, e.g. 'A-10234'")
+
+
+class ChurnRateInput(BaseModel):
+    carrier: str = Field(
+        description="Carrier name: StateFarm, GEICO, Allstate, Progressive, or Nationwide"
+    )
+    quarter: Optional[str] = Field(
+        default=None, description="Quarter, e.g. 'Q1', 'Q2', 'Q3', 'Q4'"
+    )
+    year: Optional[int] = Field(default=None, description="4-digit year, e.g. 2026")
+
+
 UNDERWRITING_TOOLS = [
-    Tool(
-        name="get_risk_score",
+    StructuredTool.from_function(
         func=get_risk_score,
+        name="get_risk_score",
         description="""Get risk score and risk tier for a specific policy.
-        Input: a policy_id string (e.g. 'A-10234').
         Output: risk score (0-100) and tier (Low/Medium/High).""",
+        args_schema=RiskScoreInput,
     ),
-    Tool(
-        name="get_churn_rate",
+    StructuredTool.from_function(
         func=get_churn_rate,
+        name="get_churn_rate",
         description="""Calculate churn or non-renewal rate for a carrier in a time period.
         Use when asked about: churn rate, attrition, non-renewal rate, retention rate.
-        Input: string containing carrier name and period, e.g. 'carrier=StateFarm period=Q1 2026'.
-        Understands: Q1/Q2/Q3/Q4, 'first quarter', year references.""",
+        Defaults to the trailing 90 days when no quarter/year is given.""",
+        args_schema=ChurnRateInput,
     ),
 ]

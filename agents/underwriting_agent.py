@@ -3,13 +3,12 @@ Underwriting Specialist Agent
 Handles: policy lookup, risk scoring, churn/renewal rate analysis.
 """
 
-from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferWindowMemory
 from langchain.schema import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 from langchain.tools import Tool
 from sqlalchemy import create_engine, text as sa_text
 
+from agents.base import build_specialist_agent
 from tools.underwriting_tools import UNDERWRITING_TOOLS
 import os
 import re
@@ -141,16 +140,6 @@ def build_underwriting_agent(db_url: str = None, llm=None):
             )
         )
 
-    memory = ConversationBufferWindowMemory(memory_key="chat_history", return_messages=True, k=5)
-
-    agent = initialize_agent(
-        tools=tools,
-        llm=llm,
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-        memory=memory,
-        verbose=True,
-        agent_kwargs={"system_message": SYSTEM_PROMPT},
-        handle_parsing_errors=True,
-    )
+    agent = build_specialist_agent(tools, SYSTEM_PROMPT, llm)
 
     return agent

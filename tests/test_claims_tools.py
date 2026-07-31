@@ -180,50 +180,50 @@ class TestGetClaimsByPerson:
 
 class TestFindFrequentClaimants:
     def test_returns_list(self):
-        result = find_frequent_claimants("min_claims=1 years=5")
+        result = find_frequent_claimants(min_claims=1, years=5)
         assert isinstance(result, list)
 
     def test_min_claims_2_returns_both(self):
-        result = find_frequent_claimants("min_claims=2 years=5")
+        result = find_frequent_claimants(min_claims=2, years=5)
         ids = {r["person_id"] for r in result}
         assert "P-HIGH" in ids
         assert "P-MED" in ids
 
     def test_min_claims_4_returns_only_high(self):
-        result = find_frequent_claimants("min_claims=4 years=5")
+        result = find_frequent_claimants(min_claims=4, years=5)
         ids = {r["person_id"] for r in result}
         assert "P-HIGH" in ids
         assert "P-MED" not in ids
 
     def test_fraud_flag_set_for_3_plus_claims(self):
-        result = find_frequent_claimants("min_claims=1 years=5")
+        result = find_frequent_claimants(min_claims=1, years=5)
         high = next(r for r in result if r["person_id"] == "P-HIGH")
         assert high["fraud_flag"] is True
 
     def test_fraud_flag_not_set_for_2_claims(self):
-        result = find_frequent_claimants("min_claims=1 years=5")
+        result = find_frequent_claimants(min_claims=1, years=5)
         med = next(r for r in result if r["person_id"] == "P-MED")
         assert med["fraud_flag"] is False
 
     def test_carrier_filter_returns_only_matching_carrier(self):
         # P-HIGH is Geico, P-MED is StateFarm — carrier=Geico should return only P-HIGH
-        result = find_frequent_claimants("carrier=Geico min_claims=1 years=5")
+        result = find_frequent_claimants(carrier="Geico", min_claims=1, years=5)
         ids = {r["person_id"] for r in result}
         assert "P-HIGH" in ids
         assert "P-MED" not in ids
 
     def test_carrier_filter_case_insensitive(self):
-        result_upper = find_frequent_claimants("carrier=GEICO min_claims=1 years=5")
-        result_lower = find_frequent_claimants("carrier=geico min_claims=1 years=5")
+        result_upper = find_frequent_claimants(carrier="GEICO", min_claims=1, years=5)
+        result_lower = find_frequent_claimants(carrier="geico", min_claims=1, years=5)
         assert {r["person_id"] for r in result_upper} == {r["person_id"] for r in result_lower}
 
     def test_no_carrier_filter_returns_all_carriers(self):
-        result = find_frequent_claimants("min_claims=1 years=5")
+        result = find_frequent_claimants(min_claims=1, years=5)
         ids = {r["person_id"] for r in result}
         assert "P-HIGH" in ids and "P-MED" in ids
 
     def test_carrier_name_in_result(self):
-        result = find_frequent_claimants("min_claims=1 years=5")
+        result = find_frequent_claimants(min_claims=1, years=5)
         high = next(r for r in result if r["person_id"] == "P-HIGH")
         assert high["carrier_name"] == "Geico"
 

@@ -3,10 +3,9 @@ Claims Specialist Agent
 Handles: claims history, frequent claimants, fraud detection.
 """
 
-from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferWindowMemory
 from langchain_groq import ChatGroq
 
+from agents.base import build_specialist_agent
 from tools.claims_tools import CLAIMS_TOOLS
 import os
 
@@ -51,16 +50,6 @@ def build_claims_agent(llm=None):
         model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
-    memory = ConversationBufferWindowMemory(memory_key="chat_history", return_messages=True, k=5)
-
-    agent = initialize_agent(
-        tools=CLAIMS_TOOLS,
-        llm=llm,
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-        memory=memory,
-        verbose=True,
-        agent_kwargs={"system_message": SYSTEM_PROMPT},
-        handle_parsing_errors=True,
-    )
+    agent = build_specialist_agent(CLAIMS_TOOLS, SYSTEM_PROMPT, llm)
 
     return agent

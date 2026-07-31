@@ -234,14 +234,14 @@ class TestUnderwritingTools:
     def test_get_churn_rate_returns_dict(self):
         from tools.underwriting_tools import get_churn_rate
 
-        result = get_churn_rate("carrier=StateFarm period=Q1 2026")
+        result = get_churn_rate(carrier="StateFarm", quarter="Q1", year=2026)
         assert isinstance(result, dict)
 
     def test_get_churn_rate_known_carrier_period(self):
         from tools.underwriting_tools import get_churn_rate
 
         # A-10235 is StateFarm, expires 2026-01-01, non-renewed → Q1 2026
-        result = get_churn_rate("carrier=StateFarm period=Q1 2026")
+        result = get_churn_rate(carrier="StateFarm", quarter="Q1", year=2026)
         assert "message" not in result, f"Expected data, got: {result}"
         assert result["carrier"] == "StateFarm"
         assert result["not_renewed"] == 1

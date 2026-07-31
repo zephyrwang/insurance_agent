@@ -3,8 +3,12 @@ Claims tools — claims history, frequent claimants, fraud flagging.
 """
 
 from datetime import date, timedelta
-from langchain.tools import Tool
+from typing import Optional
+
+from langchain.tools import StructuredTool
+from langchain_core.pydantic_v1 import BaseModel, Field
 from sqlalchemy import text
+
 from db.database import get_session
 
 
@@ -57,19 +61,10 @@ def get_claims_by_person(person_id: str) -> dict:
         session.close()
 
 
-def find_frequent_claimants(input_str: str = "") -> list:
-    import re
-
-    min_claims = int((re.search(r"min_claims[= ]+(\d+)", input_str) or [None, 2])[1])
-    years = int((re.search(r"years[= ]+(\d+)", input_str) or [None, 1])[1])
+def find_frequent_claimants(
+    min_claims: int = 2, years: int = 1, carrier: Optional[str] = None
+) -> list:
     cutoff = date.today() - timedelta(days=years * 365)
-
-    # Optional carrier filter — e.g. "carrier=Geico min_claims=2 years=1"
-    carrier_match = re.search(
-        r"carrier[= ]+([A-Za-z][A-Za-z0-9 .-]*?)(?:\s+(?:min_claims|years)\b|$)",
-        input_str.strip(),
-    )
-    carrier = carrier_match.group(1).strip() if carrier_match else None
 
     session = _session()
     try:
@@ -89,7 +84,7 @@ def find_frequent_claimants(input_str: str = "") -> list:
             WHERE c.claim_date >= :cutoff
               AND (:carrier IS NULL OR LOWER(p.carrier_name) = LOWER(:carrier))
             GROUP BY c.person_id, p.state, p.risk_score, p.carrier_name
-            HAVING COUNT(DISTINCT c.claim_id) >= :min_claims
+            HAVING COUNT(c.claim_id) >= :min_claims
             ORDER BY claims_count DESC
             LIMIT 50
         """
@@ -158,37 +153,47 @@ def flag_fraud_risk(person_id: str) -> dict:
     }
 
 
+class PersonIdInput(BaseModel):
+    person_id: str = Field(description="Person id, e.g. 'P-001'")
+
+
+class FrequentClaimantsInput(BaseModel):
+    min_claims: int = Field(default=2, description="Minimum number of claims (default 2)")
+    years: int = Field(default=1, description="Lookback window in years (default 1)")
+    carrier: Optional[str] = Field(
+        default=None,
+        description="Optional carrier name filter, e.g. GEICO, StateFarm, Allstate",
+    )
+
+
 CLAIMS_TOOLS = [
-    Tool(
-        name="get_claims_by_person",
+    StructuredTool.from_function(
         func=get_claims_by_person,
+        name="get_claims_by_person",
         description="""Get full claims history for ONE specific person.
         Use when a person_id is mentioned (e.g. 'claims for P-001', 'history for P-003').
         Do NOT use this to find multiple persons or list all claimants.
-        Input: a person_id string (e.g. 'P-001').
         Output: list of claims with dates, types, amounts, and statuses.""",
+        args_schema=PersonIdInput,
     ),
-    Tool(
-        name="find_frequent_claimants",
+    StructuredTool.from_function(
         func=find_frequent_claimants,
+        name="find_frequent_claimants",
         description="""Find ALL persons who have filed multiple claims, optionally filtered by carrier.
         Use when asked to LIST or FIND persons with N or more claims — e.g.:
         'find all persons with 2 or more claims', 'who has multiple claims',
         'frequent claimants', 'claims frequency for Geico', 'persons with more than 1 claim in the past year'.
-        Input format: 'carrier=Geico min_claims=2 years=1'
-          - carrier= (optional) filters by insurance carrier name (e.g. Geico, StateFarm, Allstate)
-          - min_claims= minimum number of claims (default 2)
-          - years= lookback window in years (default 1)
         Output: ranked list of all matching persons with claim counts, carrier, and fraud flags.""",
+        args_schema=FrequentClaimantsInput,
     ),
-    Tool(
-        name="flag_fraud_risk",
+    StructuredTool.from_function(
         func=flag_fraud_risk,
+        name="flag_fraud_risk",
         description="""Assess fraud risk score for ONE specific person.
         Use ONLY when a specific person_id is given AND fraud/risk is asked about.
         Examples: 'fraud risk for P-002', 'is P-005 suspicious', 'SIU referral for P-001'.
         Do NOT use this to find multiple persons or answer listing questions.
-        Input: a person_id string.
         Output: fraud risk level (Low/Medium/High), score, and recommendation.""",
+        args_schema=PersonIdInput,
     ),
 ]
