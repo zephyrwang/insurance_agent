@@ -285,7 +285,9 @@ class MockSupervisorAgent:
             return "claims"
         return "underwriting"
 
-    def run(self, question: str, session_id: str = "default") -> dict:
+    def run(self, question: str, session_id: str = "default", actor=None) -> dict:
+        # actor is accepted for call-site compatibility with the real SupervisorAgent
+        # but ignored here — mock responses don't touch the DB, so there's nothing to scope.
         domain = self._route(question)
         self.routing_log.append({"question": question, "routed_to": domain})
         answer = random.choice(MOCK_RESPONSES[domain])

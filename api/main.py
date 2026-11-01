@@ -7,12 +7,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from typing import Optional
 import os
 
 load_dotenv()
 
 from agents.supervisor_agent import SupervisorAgent
+from agents.actor import Actor
 from db.database import seed_sample_data, get_engine
+from api.auth import (
+    sign_actor,
+    verify_token,
+    check_staff_passcode,
+    check_carrier_login,
+    InvalidToken,
+)
 
 app = FastAPI(
     title="Insurance Policy Chatbot API",
@@ -53,6 +62,7 @@ def startup():
 class ChatRequest(BaseModel):
     question: str
     session_id: str = "default"  # scopes conversation memory per client session
+    token: str  # signed Actor token from /auth/staff-login or /auth/carrier-login
 
 
 class ChatResponse(BaseModel):
@@ -65,18 +75,64 @@ class RoutingLogResponse(BaseModel):
     log: list
 
 
+class StaffLoginRequest(BaseModel):
+    passcode: str
+
+
+class CarrierLoginRequest(BaseModel):
+    carrier_name: str
+    access_code: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    mode: str
+    carrier_name: Optional[str] = None
+
+
 # -----------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------
 
 
+@app.post("/auth/staff-login", response_model=LoginResponse)
+def staff_login(req: StaffLoginRequest):
+    """Issue a signed staff token. Demo-grade: a single shared passcode, not per-user SSO."""
+    if not check_staff_passcode(req.passcode):
+        raise HTTPException(status_code=401, detail="Invalid passcode.")
+
+    return LoginResponse(token=sign_actor(Actor.staff()), mode="staff")
+
+
+@app.post("/auth/carrier-login", response_model=LoginResponse)
+def carrier_login(req: CarrierLoginRequest):
+    """Issue a signed carrier token scoped to one insurance company's own data."""
+    carrier_name = check_carrier_login(req.carrier_name, req.access_code)
+    if not carrier_name:
+        raise HTTPException(status_code=401, detail="Invalid carrier name or access code.")
+
+    return LoginResponse(
+        token=sign_actor(Actor.carrier(carrier_name)), mode="carrier", carrier_name=carrier_name
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    """Main chat endpoint — routes to the correct specialist agent."""
+    """Main chat endpoint — routes to the correct specialist agent.
+
+    The actor (staff vs. carrier, and which carrier) comes ONLY from the verified
+    token payload — never from a client-editable field — so a request can't claim a
+    different identity just by changing the JSON body.
+    """
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    result = supervisor.run(req.question, session_id=req.session_id)
+    try:
+        actor = verify_token(req.token)
+    except InvalidToken as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+    result = supervisor.run(req.question, session_id=req.session_id, actor=actor)
     return ChatResponse(
         question=result["question"],
         answer=result["answer"],
@@ -110,5 +166,9 @@ def list_agents():
         "analytics": {
             "description": "Loss ratios, portfolio summaries, trend analysis",
             "tools": ["get_loss_ratio", "get_portfolio_summary", "get_claims_trend"],
+        },
+        "greeting": {
+            "description": "Introduces the assistant and hands off to the right specialist",
+            "tools": [],
         },
     }

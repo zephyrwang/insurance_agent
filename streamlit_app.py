@@ -21,6 +21,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from agents.actor import Actor
+from api.auth import check_staff_passcode, check_carrier_login
+
 # ── Page config ────────────────────────────────────────────
 st.set_page_config(
     page_title="Insurance Policy Agent",
@@ -341,9 +344,10 @@ AGENT_META = {
     "underwriting": {"label": "Underwriting Agent", "badge": "badge-underwriting", "icon": "📋"},
     "claims": {"label": "Claims Agent", "badge": "badge-claims", "icon": "📁"},
     "analytics": {"label": "Analytics Agent", "badge": "badge-analytics", "icon": "📊"},
+    "greeting": {"label": "Greeting Agent", "badge": "badge-supervisor", "icon": "👋"},
 }
 
-SAMPLE_QUESTIONS = {
+SAMPLE_QUESTIONS_STAFF = {
     "📋 Underwriting": [
         "What is the risk score for policy A-10234?",
         "Show all active policies in California with risk score above 80",
@@ -363,6 +367,22 @@ SAMPLE_QUESTIONS = {
         "What is the overall portfolio loss ratio?",
         "List all persons with their policy count, premium sum, claims count, loss ratio, risk score and fraud flag",
         "List all insurance companies with the number of policies in 2024, 2025, 2026",
+    ],
+}
+
+# A carrier account only sees its own detailed records plus cross-carrier aggregates —
+# these samples reflect that split rather than the full staff question set above.
+SAMPLE_QUESTIONS_CARRIER = {
+    "📋 Your own policies & claims": [
+        "What is the risk score for policy A-10234?",
+        "Show claims history for person P-001",
+        "What is the fraud risk for person P-001?",
+        "Find all persons with 2 or more claims in the past year",
+    ],
+    "📊 Cross-carrier benchmarks": [
+        "What is the overall portfolio loss ratio?",
+        "What is the churn rate for StateFarm in Q1 2026?",
+        "List all insurance companies with the number of claims in 2024, 2025, 2026",
     ],
 }
 
@@ -457,7 +477,7 @@ if "routing_log" not in st.session_state:
 if "supervisor" not in st.session_state:
     st.session_state.supervisor = None
 if "total_queries" not in st.session_state:
-    st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0}
+    st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0, "greeting": 0}
 if "msg_id_counter" not in st.session_state:
     st.session_state.msg_id_counter = 0
 # The supervisor is shared across all browser sessions (@st.cache_resource),
@@ -466,6 +486,9 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = uuid.uuid4().hex
 if "ratings" not in st.session_state:
     st.session_state.ratings = {}  # {msg_id: "satisfied" | "basic" | "incorrect"}
+# None until login — gates the chat input. Set to Actor.staff() or Actor.carrier(name).
+if "actor" not in st.session_state:
+    st.session_state.actor = None
 
 
 def _next_msg_id() -> int:
@@ -502,6 +525,60 @@ with st.sidebar:
     st.markdown("*Multi-agent AI chatbot for policy analysis*")
     st.divider()
 
+    # ── Account / login ──────────────────────────────────
+    st.markdown("#### Account")
+    if st.session_state.actor is None:
+        login_mode = st.radio(
+            "Log in as",
+            ["Staff", "Carrier"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="login_mode",
+        )
+        if login_mode == "Staff":
+            passcode = st.text_input("Staff passcode", type="password", key="staff_passcode_input")
+            if st.button("Log in", key="staff_login_btn", use_container_width=True):
+                if check_staff_passcode(passcode):
+                    st.session_state.actor = Actor.staff()
+                    st.rerun()
+                else:
+                    st.error("Invalid passcode.")
+        else:
+            carrier_name_input = st.text_input(
+                "Carrier name", key="carrier_name_input", placeholder="e.g. GEICO"
+            )
+            access_code_input = st.text_input(
+                "Access code", type="password", key="carrier_code_input"
+            )
+            if st.button("Log in", key="carrier_login_btn", use_container_width=True):
+                normalized = check_carrier_login(carrier_name_input, access_code_input)
+                if normalized:
+                    st.session_state.actor = Actor.carrier(normalized)
+                    st.rerun()
+                else:
+                    st.error("Invalid carrier name or access code.")
+    else:
+        actor = st.session_state.actor
+        if actor.mode == "staff":
+            st.success("Logged in as **Staff** (full access)")
+        else:
+            st.success(f"Logged in as **{actor.carrier_name}**")
+        if st.button("Log out", key="logout_btn", use_container_width=True):
+            st.session_state.actor = None
+            st.session_state.messages = []
+            st.session_state.routing_log = []
+            st.session_state.ratings = {}
+            st.session_state.total_queries = {
+                "underwriting": 0,
+                "claims": 0,
+                "analytics": 0,
+                "greeting": 0,
+            }
+            st.session_state.session_id = uuid.uuid4().hex
+            st.rerun()
+
+    st.divider()
+
     # Agent status
     st.markdown("#### Active Agents")
     for domain, meta in AGENT_META.items():
@@ -534,15 +611,21 @@ with st.sidebar:
 
     st.divider()
 
-    # Sample questions
-    st.markdown("#### Sample Questions")
-    for category, questions in SAMPLE_QUESTIONS.items():
-        with st.expander(category):
-            for q in questions:
-                if st.button(q, key=f"sample_{q[:30]}", use_container_width=True):
-                    st.session_state["pending_question"] = q
+    # Sample questions — only once logged in, and scoped to what this actor can ask
+    if st.session_state.actor is not None:
+        st.markdown("#### Sample Questions")
+        active_samples = (
+            SAMPLE_QUESTIONS_CARRIER
+            if st.session_state.actor.mode == "carrier"
+            else SAMPLE_QUESTIONS_STAFF
+        )
+        for category, questions in active_samples.items():
+            with st.expander(category):
+                for q in questions:
+                    if st.button(q, key=f"sample_{q[:30]}", use_container_width=True):
+                        st.session_state["pending_question"] = q
 
-    st.divider()
+        st.divider()
 
     # Routing log
     if st.session_state.routing_log:
@@ -564,7 +647,12 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.routing_log = []
         st.session_state.ratings = {}
-        st.session_state.total_queries = {"underwriting": 0, "claims": 0, "analytics": 0}
+        st.session_state.total_queries = {
+            "underwriting": 0,
+            "claims": 0,
+            "analytics": 0,
+            "greeting": 0,
+        }
         st.rerun()
 
     # Mode indicator + optional API key
@@ -701,21 +789,26 @@ with chat_container:
 
 # ── Input area ──────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
-input_col, btn_col = st.columns([6, 1])
 
-with input_col:
-    user_input = st.text_input(
-        label="Ask a question",
-        label_visibility="collapsed",
-        placeholder="e.g. What is the churn rate for StateFarm in Q1 2026?",
-        key="chat_input",
-    )
-with btn_col:
-    send_clicked = st.button("Send ➤", use_container_width=True, type="primary")
+if st.session_state.actor is None:
+    st.info("👋 Log in from the sidebar (Staff or Carrier) to start chatting.")
+    question_to_process = None
+else:
+    input_col, btn_col = st.columns([6, 1])
 
-# Handle sidebar sample question clicks
-pending = st.session_state.pop("pending_question", None)
-question_to_process = pending or (user_input if send_clicked else None)
+    with input_col:
+        user_input = st.text_input(
+            label="Ask a question",
+            label_visibility="collapsed",
+            placeholder="e.g. What is the churn rate for StateFarm in Q1 2026?",
+            key="chat_input",
+        )
+    with btn_col:
+        send_clicked = st.button("Send ➤", use_container_width=True, type="primary")
+
+    # Handle sidebar sample question clicks
+    pending = st.session_state.pop("pending_question", None)
+    question_to_process = pending or (user_input if send_clicked else None)
 
 
 # ── Process question ─────────────────────────────────────────
@@ -745,7 +838,11 @@ if question_to_process and question_to_process.strip():
     else:
         with st.spinner("Thinking..."):
             try:
-                result = supervisor.run(question, session_id=st.session_state.session_id)
+                result = supervisor.run(
+                    question,
+                    session_id=st.session_state.session_id,
+                    actor=st.session_state.actor,
+                )
                 domain = result["routed_to"]
                 answer = result["answer"]
 

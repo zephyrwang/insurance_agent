@@ -3,11 +3,12 @@ Analytics Specialist Agent
 Handles: loss ratios, portfolio summaries, trend analysis.
 """
 
-from langchain.agents import initialize_agent, AgentType
-from langchain.memory import ConversationBufferWindowMemory
 from langchain_groq import ChatGroq
 
+from agents.base import build_specialist_agent
+from agents.actor import Actor
 from tools.analytics_tools import ANALYTICS_TOOLS
+from tools.scoped_tools import scope_analytics_tools
 import os
 
 
@@ -49,21 +50,14 @@ General rules:
 """
 
 
-def build_analytics_agent(llm=None):
+def build_analytics_agent(llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
         model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
-    memory = ConversationBufferWindowMemory(memory_key="chat_history", return_messages=True, k=5)
+    is_carrier = actor is not None and actor.mode == "carrier"
+    tools = scope_analytics_tools(actor) if is_carrier else ANALYTICS_TOOLS
 
-    agent = initialize_agent(
-        tools=ANALYTICS_TOOLS,
-        llm=llm,
-        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-        memory=memory,
-        verbose=True,
-        agent_kwargs={"system_message": SYSTEM_PROMPT},
-        handle_parsing_errors=True,
-    )
+    agent = build_specialist_agent(tools, SYSTEM_PROMPT, llm)
 
     return agent

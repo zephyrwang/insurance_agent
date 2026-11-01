@@ -334,10 +334,16 @@ class TestLLMConnectivity:
         ), f"Unexpected LLM response: {response.content!r}"
 
     def test_supervisor_agent_runs_policy_question(self):
-        """Full end-to-end: supervisor must route and answer without ConnectionError."""
+        """Full end-to-end: supervisor must route and answer without ConnectionError.
+
+        A session's first turn always meets the greeting agent (see
+        agents/supervisor_agent.py's first-turn-forces-greeting logic), so this calls
+        run() once to pass through that turn before asking the real question.
+        """
         from agents.supervisor_agent import SupervisorAgent
 
         supervisor = SupervisorAgent(db_url=REAL_DB_URL)
+        supervisor.run("hello")
         result = supervisor.run("What is the risk score for policy A-10234?")
         assert (
             "error" not in result["answer"].lower()

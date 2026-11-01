@@ -32,7 +32,7 @@ def validate_tabular_output(text: str) -> List[str]:
     return violations
 
 
-def enforce_tabular_format(answer: str, llm) -> str:
+def enforce_tabular_format(answer: str, llm, skip: bool = False) -> str:
     """
     If `answer` is missing a markdown table, call the LLM directly to reformat it.
 
@@ -42,7 +42,13 @@ def enforce_tabular_format(answer: str, llm) -> str:
 
     Only triggers for the missing-table violation; a missing Comment section does
     not cause a retry.  Returns the original answer on any error.
+
+    `skip=True` bypasses this entirely — for the greeting agent's conversational
+    prose, which is correct as plain text and should never be coerced into a table.
     """
+    if skip:
+        return answer
+
     # Deferrals ("Please ask the Claims Agent") carry no data — reformatting
     # them into a table would just produce a nonsense one-cell table.
     if re.search(r"please ask the \w+ agent", answer, re.IGNORECASE):

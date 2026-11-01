@@ -111,15 +111,18 @@ def find_frequent_claimants(
         session.close()
 
 
-def flag_fraud_risk(person_id: str) -> dict:
-    result = get_claims_by_person(person_id)
+def _assess_fraud_risk(person_id: str, claims_result: dict) -> dict:
+    """Score fraud risk from an already-fetched get_claims_by_person()-shaped result.
 
-    if "message" in result:
+    Factored out so a carrier-scoped caller (tools/scoped_tools.py) can pass in a
+    carrier-filtered claims result instead of duplicating this scoring logic.
+    """
+    if "message" in claims_result:
         return {"person_id": person_id, "fraud_risk": "Low", "reason": "No recent claims."}
 
-    total = result["total_claims"]
-    amount = result["total_amount"]
-    open_cnt = sum(1 for c in result["claims"] if c["status"] == "Open")
+    total = claims_result["total_claims"]
+    amount = claims_result["total_amount"]
+    open_cnt = sum(1 for c in claims_result["claims"] if c["status"] == "Open")
 
     score = 0
     reasons = []
@@ -151,6 +154,10 @@ def flag_fraud_risk(person_id: str) -> dict:
             else "Monitor closely" if risk == "Medium" else "No action needed"
         ),
     }
+
+
+def flag_fraud_risk(person_id: str) -> dict:
+    return _assess_fraud_risk(person_id, get_claims_by_person(person_id))
 
 
 class PersonIdInput(BaseModel):

@@ -15,7 +15,9 @@ import re
 from agents.underwriting_agent import build_underwriting_agent
 from agents.claims_agent import build_claims_agent
 from agents.analytics_agent import build_analytics_agent
+from agents.greeting_agent import build_greeting_agent
 from agents.output_validator import enforce_tabular_format
+from agents.actor import Actor
 
 
 # -----------------------------------------------------------
@@ -108,6 +110,21 @@ ROUTING_RULES = {
         "insurance company",
         "claim volume",
     ],
+    "greeting": [
+        "hello",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "what can you do",
+        "who are you",
+        "what are you",
+        "how can you help",
+        "get started",
+        "thank you",
+        "thanks",
+        "goodbye",
+        "see you",
+    ],
 }
 
 
@@ -133,7 +150,7 @@ def _llm_route(question: str, llm) -> str:
         [
             SystemMessage(
                 content="""You are a routing assistant for an insurance chatbot.
-Classify the user question into exactly one category based on WHICH DATABASE TABLE it queries:
+Classify the user question into exactly one category:
 
 - underwriting: queries the policy table only — policy lookup, risk scores, premiums,
   churn/renewal rates, coverage, expiry, policyholder details.
@@ -144,21 +161,26 @@ Classify the user question into exactly one category based on WHICH DATABASE TAB
   trends, KPIs. "Number of claims per carrier", "claims by company", "how many claims did
   Geico have in 2025" → analytics (requires joining claims + policies to get carrier_name,
   which is not in the claims table).
+- greeting: NOT a data question at all — smalltalk, introductions ("what can you do",
+  "who are you"), thanks, or goodbyes. Only use this when there is no actual policy/claims/
+  analytics data being requested.
 
 Key rules:
 - Carrier/company names (Geico, StateFarm, Allstate, …) are NOT routing signals on their own.
   Route based on the data being requested, not the company name.
 - Trend questions always go to analytics even if the word "claims" appears.
+- If there is ANY real data question buried in the message, route to the data domain, not
+  greeting — greeting is only for messages with no data question at all.
 
-Reply with ONLY one word: underwriting, claims, or analytics."""
+Reply with ONLY one word: underwriting, claims, analytics, or greeting."""
             ),
             HumanMessage(content=question),
         ]
     )
     answer = response.content.strip().lower()
-    if answer in ("underwriting", "claims", "analytics"):
+    if answer in ("underwriting", "claims", "analytics", "greeting"):
         return answer
-    return "underwriting"  # safe default
+    return "underwriting"  # safe default for ambiguous data questions
 
 
 # -----------------------------------------------------------
@@ -186,17 +208,32 @@ class SupervisorAgent:
 
         self.routing_log = []  # track routing decisions for debugging
 
-    def _get_agents(self, session_id: str) -> dict:
-        """Get (or lazily build) the specialist agents for one session."""
-        if session_id not in self._session_agents:
+    def _get_agents(self, session_id: str, actor: Actor = None) -> dict:
+        """Get (or lazily build) the specialist agents for one session.
+
+        Agents are rebuilt if a different actor shows up under the same session_id —
+        this should never happen in practice (actor is derived server-side from a
+        verified token per request, not trusted from the client), but caching by actor
+        identity rather than session_id alone avoids silently serving one actor's
+        agents (and their toolset) to another.
+        """
+        actor = actor or Actor.staff()
+        cached = self._session_agents.get(session_id)
+        if cached is None or cached["actor"] != actor:
             if len(self._session_agents) >= self.MAX_SESSIONS:
                 self._session_agents.pop(next(iter(self._session_agents)))
             self._session_agents[session_id] = {
-                "underwriting": build_underwriting_agent(db_url=self.db_url, llm=self.llm),
-                "claims": build_claims_agent(llm=self.llm),
-                "analytics": build_analytics_agent(llm=self.llm),
+                "actor": actor,
+                "agents": {
+                    "underwriting": build_underwriting_agent(
+                        db_url=self.db_url, llm=self.llm, actor=actor
+                    ),
+                    "claims": build_claims_agent(llm=self.llm, actor=actor),
+                    "analytics": build_analytics_agent(llm=self.llm, actor=actor),
+                    "greeting": build_greeting_agent(llm=self.llm, actor=actor),
+                },
             }
-        return self._session_agents[session_id]
+        return self._session_agents[session_id]["agents"]
 
     @property
     def agents(self) -> dict:
@@ -208,17 +245,28 @@ class SupervisorAgent:
         self.routing_log.append({"question": question, "routed_to": domain})
         return domain
 
-    def run(self, question: str, session_id: str = "default") -> dict:
+    def run(self, question: str, session_id: str = "default", actor: Actor = None) -> dict:
         """
         Main entry point.
         Returns: { answer, routed_to, question }
         """
-        domain = self.route(question)
-        agent = self._get_agents(session_id)[domain]
+        actor = actor or Actor.staff()
+
+        # A brand-new session always meets the greeting agent first, regardless of what
+        # the opening message says — it introduces itself and what it can help with
+        # before handing off to a data agent on the next turn.
+        is_first_turn = session_id not in self._session_agents
+        if is_first_turn:
+            domain = "greeting"
+            self.routing_log.append({"question": question, "routed_to": domain})
+        else:
+            domain = self.route(question)
+
+        agent = self._get_agents(session_id, actor)[domain]
 
         try:
             answer = agent.run(question)
-            answer = enforce_tabular_format(answer, self.llm)
+            answer = enforce_tabular_format(answer, self.llm, skip=(domain == "greeting"))
         except Exception as e:
             answer = f"Error in {domain} agent: {str(e)}"
 

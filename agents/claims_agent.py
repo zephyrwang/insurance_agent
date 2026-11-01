@@ -6,7 +6,9 @@ Handles: claims history, frequent claimants, fraud detection.
 from langchain_groq import ChatGroq
 
 from agents.base import build_specialist_agent
+from agents.actor import Actor
 from tools.claims_tools import CLAIMS_TOOLS
+from tools.scoped_tools import scope_claims_tools
 import os
 
 
@@ -45,11 +47,14 @@ General rules:
 """
 
 
-def build_claims_agent(llm=None):
+def build_claims_agent(llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
         model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
-    agent = build_specialist_agent(CLAIMS_TOOLS, SYSTEM_PROMPT, llm)
+    is_carrier = actor is not None and actor.mode == "carrier"
+    tools = scope_claims_tools(actor) if is_carrier else CLAIMS_TOOLS
+
+    agent = build_specialist_agent(tools, SYSTEM_PROMPT, llm)
 
     return agent

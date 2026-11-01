@@ -40,6 +40,9 @@ class Claim(Base):
     claim_type = Column(Enum("Collision", "Liability", "Theft", "Weather", "Other"))
     amount = Column(Float, nullable=False)
     status = Column(Enum("Open", "Closed", "Denied"), default="Open")
+    # Denormalized from the owning policy's carrier_name at write time — always set it from
+    # policy.carrier_name when creating a claim, never independently, or the two can drift.
+    carrier_name = Column(String(50), nullable=True, index=True)
 
 
 # -----------------------------------------------------------
@@ -101,6 +104,7 @@ def seed_sample_data(engine=None):
             status="active",
             start_date=date(2021, 3, 15),
             premium=1850.0,
+            carrier_name="GEICO",
         ),
         AutoPolicy(
             policy_id="A-10235",
@@ -111,6 +115,7 @@ def seed_sample_data(engine=None):
             status="active",
             start_date=date(2020, 7, 1),
             premium=1600.0,
+            carrier_name="GEICO",
         ),
         AutoPolicy(
             policy_id="A-10236",
@@ -121,6 +126,7 @@ def seed_sample_data(engine=None):
             status="active",
             start_date=date(2022, 1, 10),
             premium=980.0,
+            carrier_name="Progressive",
         ),
         AutoPolicy(
             policy_id="A-10237",
@@ -131,6 +137,7 @@ def seed_sample_data(engine=None):
             status="active",
             start_date=date(2019, 11, 20),
             premium=2100.0,
+            carrier_name="Allstate",
         ),
         AutoPolicy(
             policy_id="A-10238",
@@ -141,6 +148,7 @@ def seed_sample_data(engine=None):
             status="inactive",
             start_date=date(2023, 5, 5),
             premium=750.0,
+            carrier_name="Nationwide",
         ),
         AutoPolicy(
             policy_id="A-10239",
@@ -151,6 +159,7 @@ def seed_sample_data(engine=None):
             status="active",
             start_date=date(2023, 3, 15),
             premium=1950.0,
+            carrier_name="StateFarm",
         ),
     ]
 
@@ -163,6 +172,7 @@ def seed_sample_data(engine=None):
             claim_type="Collision",
             amount=8200,
             status="Closed",
+            carrier_name="GEICO",
         ),
         Claim(
             claim_id="C-5103",
@@ -172,6 +182,7 @@ def seed_sample_data(engine=None):
             claim_type="Liability",
             amount=3400,
             status="Closed",
+            carrier_name="GEICO",
         ),
         Claim(
             claim_id="C-5891",
@@ -181,6 +192,7 @@ def seed_sample_data(engine=None):
             claim_type="Collision",
             amount=12700,
             status="Open",
+            carrier_name="StateFarm",
         ),
         Claim(
             claim_id="C-6012",
@@ -190,6 +202,7 @@ def seed_sample_data(engine=None):
             claim_type="Theft",
             amount=5500,
             status="Open",
+            carrier_name="GEICO",
         ),
         Claim(
             claim_id="C-6100",
@@ -199,6 +212,7 @@ def seed_sample_data(engine=None):
             claim_type="Weather",
             amount=2200,
             status="Closed",
+            carrier_name="GEICO",
         ),
         Claim(
             claim_id="C-6200",
@@ -208,6 +222,7 @@ def seed_sample_data(engine=None):
             claim_type="Collision",
             amount=9800,
             status="Open",
+            carrier_name="Allstate",
         ),
     ]
 

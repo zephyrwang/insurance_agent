@@ -132,3 +132,22 @@ class TestEnforceTabularFormat:
         llm.invoke.side_effect = RuntimeError("LLM unavailable")
         result = enforce_tabular_format(PROSE_OUTPUT, llm)
         assert result == PROSE_OUTPUT, "should fall back to original on LLM failure"
+
+    def test_skip_true_returns_prose_untouched_without_calling_llm(self):
+        """The greeting agent's conversational prose must never be coerced into a
+        table — skip=True bypasses the check entirely, even for prose that would
+        otherwise trigger a reformat."""
+        from agents.output_validator import enforce_tabular_format
+
+        llm = self._fake_llm()
+        result = enforce_tabular_format(PROSE_OUTPUT, llm, skip=True)
+        assert result == PROSE_OUTPUT
+        llm.invoke.assert_not_called()
+
+    def test_skip_false_is_the_default(self):
+        from agents.output_validator import enforce_tabular_format
+
+        llm = self._fake_llm(VALID_TABLE_WITH_COMMENT)
+        result = enforce_tabular_format(PROSE_OUTPUT, llm)
+        assert result == VALID_TABLE_WITH_COMMENT.strip()
+        llm.invoke.assert_called_once()

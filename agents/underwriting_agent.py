@@ -9,7 +9,9 @@ from langchain.tools import Tool
 from sqlalchemy import create_engine, text as sa_text
 
 from agents.base import build_specialist_agent
+from agents.actor import Actor
 from tools.underwriting_tools import UNDERWRITING_TOOLS
+from tools.scoped_tools import scope_underwriting_tools
 import os
 import re
 
@@ -121,14 +123,17 @@ Rules:
     return query_fn
 
 
-def build_underwriting_agent(db_url: str = None, llm=None):
+def build_underwriting_agent(db_url: str = None, llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
         model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
-    tools = list(UNDERWRITING_TOOLS)
+    is_carrier = actor is not None and actor.mode == "carrier"
+    tools = scope_underwriting_tools(actor) if is_carrier else list(UNDERWRITING_TOOLS)
 
-    if db_url:
+    # The NL→SQL tool has no fixed WHERE-clause seam to enforce carrier scoping through —
+    # the LLM writes the entire query — so it's staff-only regardless of any other scoping.
+    if db_url and not is_carrier:
         tools.append(
             Tool(
                 name="query_policy_db",
