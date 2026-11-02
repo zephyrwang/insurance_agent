@@ -3,33 +3,36 @@ Analytics tools — loss ratio, trend analysis, portfolio summary.
 """
 
 from datetime import date, timedelta
-from langchain.tools import Tool
+from typing import List, Optional
+
+from langchain.tools import StructuredTool
+from pydantic import BaseModel, Field
 from sqlalchemy import text
+
 from db.database import get_session
+from tools.underwriting_tools import normalize_carrier
 
 
 def _session():
     return get_session()
 
 
-def get_loss_ratio(input_str: str) -> dict:
-    import re
-
-    carrier = (re.search(r"carrier[= ]+([A-Za-z]+)", input_str) or [None, None])[1]
-    state = (re.search(r"state[= ]+([A-Z]{2})", input_str) or [None, None])[1]
-    year_m = re.search(r"\b(20\d{2})\b", input_str)
-    year = int(year_m.group(1)) if year_m else None
+def get_loss_ratio(
+    carrier: Optional[str] = None, state: Optional[str] = None, year: Optional[int] = None
+) -> dict:
+    carrier_norm = normalize_carrier(carrier) if carrier else None
+    state_norm = state.strip().upper() if state else None
 
     policy_where = ["1=1"]
     claim_where = ["c.status = 'Closed'"]
     params = {}
 
-    if carrier:
+    if carrier_norm:
         policy_where.append("p.carrier_name = :carrier")
-        params["carrier"] = carrier
-    if state:
+        params["carrier"] = carrier_norm
+    if state_norm:
         policy_where.append("p.state = :state")
-        params["state"] = state
+        params["state"] = state_norm
     if year:
         # Filter claims to that year
         claim_where.append("strftime('%Y', c.claim_date) = :year")
@@ -74,8 +77,8 @@ def get_loss_ratio(input_str: str) -> dict:
         loss_ratio = result["loss_ratio_pct"] or 0
         period = str(year) if year else "All time"
         return {
-            "carrier": carrier or "All",
-            "state": state or "All",
+            "carrier": carrier_norm or "All",
+            "state": state_norm or "All",
             "period": period,
             "total_premium": round(result["total_premium"] or 0, 2),
             "total_claims": round(result["total_claims"] or 0, 2),
@@ -90,7 +93,7 @@ def get_loss_ratio(input_str: str) -> dict:
         session.close()
 
 
-def get_portfolio_summary(input_str: str = "") -> dict:
+def get_portfolio_summary() -> dict:
     session = _session()
     try:
         policies = (
@@ -160,20 +163,18 @@ def get_portfolio_summary(input_str: str = "") -> dict:
         session.close()
 
 
-def get_claims_trend(input_str: str = "") -> list:
-    import re
-
-    state = (re.search(r"state[= ]+([A-Z]{2})", input_str) or [None, None])[1]
-    carrier = (re.search(r"carrier[= ]+([A-Za-z]+)", input_str) or [None, None])[1]
+def get_claims_trend(state: Optional[str] = None, carrier: Optional[str] = None) -> list:
+    state_norm = state.strip().upper() if state else None
+    carrier_norm = normalize_carrier(carrier) if carrier else None
 
     where_clauses = ["c.claim_date >= :cutoff"]
     params = {"cutoff": date.today() - timedelta(days=365)}
-    if state:
+    if state_norm:
         where_clauses.append("p.state = :state")
-        params["state"] = state
-    if carrier:
+        params["state"] = state_norm
+    if carrier_norm:
         where_clauses.append("p.carrier_name = :carrier")
-        params["carrier"] = carrier
+        params["carrier"] = carrier_norm
 
     where = " AND ".join(where_clauses)
     session = _session()
@@ -216,20 +217,19 @@ def get_claims_trend(input_str: str = "") -> list:
 # Tool 4: Carrier summary — policy counts by carrier and year
 # -----------------------------------------------------------
 
+_DEFAULT_YEARS = [2024, 2025, 2026]
 
-def get_carrier_summary(input_str: str = "") -> list:
+
+def get_carrier_summary(years: Optional[List[int]] = None) -> list:
     """Policy counts per carrier, pivoted by year."""
-    import re
+    years = years or _DEFAULT_YEARS
 
-    years = re.findall(r"\b(20\d{2})\b", input_str) or ["2024", "2025", "2026"]
-
-    # Build a CASE column per year
+    # Build a CASE column per year. `years` is pydantic-validated List[int], so these
+    # are always plain integers — safe to format directly into the SQL text.
     year_cols = "\n".join(
-        [
-            f"SUM(CASE WHEN start_date <= '{y}-12-31' AND "
-            f"(expiry_date IS NULL OR expiry_date >= '{y}-01-01') THEN 1 ELSE 0 END) AS \"{y}\","
-            for y in years
-        ]
+        f"SUM(CASE WHEN start_date <= '{y}-12-31' AND "
+        f"(expiry_date IS NULL OR expiry_date >= '{y}-01-01') THEN 1 ELSE 0 END) AS \"{y}\","
+        for y in years
     )
 
     session = _session()
@@ -262,8 +262,16 @@ def get_carrier_summary(input_str: str = "") -> list:
 # -----------------------------------------------------------
 
 
-def get_person_summary(input_str: str = "") -> list:
-    """Aggregate view per person: policy count, premiums, claims, loss ratio, fraud flag."""
+def get_person_summary(limit: int = 25) -> list:
+    """Aggregate view per person: policy count, premiums, claims, loss ratio, fraud flag.
+
+    Capped at `limit` (default 25, max 100) — with thousands of seeded persons,
+    returning every one of them would blow past the model's token budget on the
+    next turn (hit a 413 "request too large" error during testing without a cap).
+    Ordered by total_claims DESC, so the default view is the highest-exposure
+    people first, not an arbitrary truncation.
+    """
+    limit = max(1, min(limit, 100))
     session = _session()
     try:
         # Claims are pre-aggregated per person before joining, otherwise a person
@@ -305,8 +313,10 @@ def get_person_summary(input_str: str = "") -> list:
             WHERE p.status = 'active'
             GROUP BY p.person_id
             ORDER BY total_claims DESC
+            LIMIT :limit
         """
-                )
+                ),
+                {"limit": limit},
             )
             .mappings()
             .fetchall()
@@ -322,23 +332,17 @@ def get_person_summary(input_str: str = "") -> list:
 # -----------------------------------------------------------
 
 
-def get_carrier_claims_summary(input_str: str = "") -> list:
+def get_carrier_claims_summary(years: Optional[List[int]] = None) -> list:
     """Claim counts and total amounts per carrier, pivoted by year."""
-    import re
-
-    years = re.findall(r"\b(20\d{2})\b", input_str) or ["2024", "2025", "2026"]
+    years = years or _DEFAULT_YEARS
 
     year_count_cols = "\n".join(
-        [
-            f"SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN 1 ELSE 0 END) AS \"{y}_claims\","
-            for y in years
-        ]
+        f"SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN 1 ELSE 0 END) AS \"{y}_claims\","
+        for y in years
     )
     year_amount_cols = "\n".join(
-        [
-            f"ROUND(SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN c.amount ELSE 0 END), 2) AS \"{y}_amount\","
-            for y in years
-        ]
+        f"ROUND(SUM(CASE WHEN strftime('%Y', c.claim_date) = '{y}' THEN c.amount ELSE 0 END), 2) AS \"{y}_amount\","
+        for y in years
     )
 
     session = _session()
@@ -369,62 +373,95 @@ def get_carrier_claims_summary(input_str: str = "") -> list:
         session.close()
 
 
+class LossRatioInput(BaseModel):
+    carrier: Optional[str] = Field(default=None, description="Carrier name, e.g. GEICO, StateFarm")
+    state: Optional[str] = Field(default=None, description="2-letter state code, e.g. CA")
+    year: Optional[int] = Field(default=None, description="4-digit year, e.g. 2026")
+
+
+class NoInput(BaseModel):
+    pass
+
+
+class PersonSummaryInput(BaseModel):
+    limit: int = Field(
+        default=25, description="Max number of persons to return (default 25, max 100)"
+    )
+
+
+class ClaimsTrendInput(BaseModel):
+    state: Optional[str] = Field(default=None, description="2-letter state code, e.g. CA")
+    carrier: Optional[str] = Field(default=None, description="Carrier name, e.g. GEICO, StateFarm")
+
+
+class YearsInput(BaseModel):
+    years: Optional[List[int]] = Field(
+        default=None,
+        description="List of 4-digit years, e.g. [2024, 2025, 2026]. Defaults to 2024-2026 if omitted.",
+    )
+
+
 ANALYTICS_TOOLS = [
-    Tool(
-        name="get_loss_ratio",
+    StructuredTool.from_function(
         func=get_loss_ratio,
+        name="get_loss_ratio",
         description="""Calculate loss ratio (claims paid / premiums collected).
         Use for ANY question about loss ratio — overall, by state, by carrier, or by year.
         Examples: 'overall loss ratio', 'loss ratio for CA', 'StateFarm 2025', 'loss ratio in OH in 2026'.
-        Input: combine any of — 'carrier=StateFarm', 'state=CA', and/or a 4-digit year like '2025'.
-        Example inputs: 'carrier=StateFarm 2025', 'state=OH 2026', 'carrier=GEICO state=CA 2025'.
-        Leave empty for overall all-time portfolio loss ratio.
+        Leave all fields empty for the overall all-time portfolio loss ratio.
         Output: carrier, state, period, total premium, total claims, loss ratio %, assessment.""",
+        args_schema=LossRatioInput,
     ),
-    Tool(
-        name="get_portfolio_summary",
+    StructuredTool.from_function(
         func=get_portfolio_summary,
+        name="get_portfolio_summary",
         description="""Get a high-level summary of the entire policy portfolio.
         Use when asked for: portfolio overview, dashboard, total policies, total premiums, top states, KPIs.
         Do NOT use this for loss ratio questions — use get_loss_ratio instead.
         No input required.
         Output: active policies, unique persons, total premium, avg risk score, top states.""",
+        args_schema=NoInput,
     ),
-    Tool(
-        name="get_claims_trend",
+    StructuredTool.from_function(
         func=get_claims_trend,
+        name="get_claims_trend",
         description="""Get monthly claims trend for the past 12 months.
         Use ONLY when asked about trends over time, monthly patterns, or seasonal analysis.
         Do NOT use for loss ratio or portfolio summary questions.
-        Input: optional 'state=CA' or 'carrier=StateFarm'.
         Output: month-by-month claim count and total amount.""",
+        args_schema=ClaimsTrendInput,
     ),
-    Tool(
-        name="get_carrier_summary",
+    StructuredTool.from_function(
         func=get_carrier_summary,
+        name="get_carrier_summary",
         description="""Get POLICY counts per insurance carrier broken down by year.
         Use when asked about: number of policies per company/carrier, carrier breakdown by year,
         'list all insurance companies with policy count', 'how many policies per carrier in 2024/2025/2026'.
-        Input: list the years needed, e.g. '2024 2025 2026'. Defaults to 2024, 2025, 2026 if blank.
+        Defaults to years 2024, 2025, 2026 if not specified.
         Output: one row per carrier with a column for each year and a total.""",
+        args_schema=YearsInput,
     ),
-    Tool(
-        name="get_carrier_claims_summary",
+    StructuredTool.from_function(
         func=get_carrier_claims_summary,
+        name="get_carrier_claims_summary",
         description="""Get CLAIM counts and total claim amounts per insurance carrier broken down by year.
         Use when asked about: number of claims per company/carrier, claims by carrier by year,
         'list all insurance companies with number of claims', 'how many claims per carrier in 2024/2025/2026',
         'claims frequency by carrier', 'claim volume per company'.
-        Input: list the years needed, e.g. '2024 2025 2026'. Defaults to 2024, 2025, 2026 if blank.
+        Defaults to years 2024, 2025, 2026 if not specified.
         Output: one row per carrier with claim count and total amount per year plus overall totals.""",
+        args_schema=YearsInput,
     ),
-    Tool(
-        name="get_person_summary",
+    StructuredTool.from_function(
         func=get_person_summary,
-        description="""Get a combined per-person summary across policies and claims.
-        Use when asked to list all persons/customers with their policy count, premiums, claims, loss ratio, risk score, or fraud flag.
+        name="get_person_summary",
+        description="""Get a combined per-person summary across policies and claims, ranked by
+        total claims descending (highest-exposure people first).
+        Use when asked to list persons/customers with their policy count, premiums, claims, loss ratio, risk score, or fraud flag.
         Examples: 'list all persons with policy and claims info', 'customer overview', 'who has the highest loss ratio'.
-        No input required.
+        Optional limit (default 25, max 100) — there are thousands of persons, so this is never
+        truly "all" of them; it returns the top N by claims.
         Output: one row per person with policy_count, total_premium, risk_tier, claims_count, total_claims, loss_ratio_pct, fraud_flag.""",
+        args_schema=PersonSummaryInput,
     ),
 ]

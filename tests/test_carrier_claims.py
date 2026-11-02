@@ -154,13 +154,13 @@ class TestGetCarrierClaimsSummary:
     def test_returns_list(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         assert isinstance(result, list)
 
     def test_one_row_per_carrier(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         carriers = [r["carrier_name"] for r in result]
         assert "GEICO" in carriers
         assert "StateFarm" in carriers
@@ -168,49 +168,49 @@ class TestGetCarrierClaimsSummary:
     def test_geico_2024_claim_count(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         geico = next(r for r in result if r["carrier_name"] == "GEICO")
         assert geico["2024_claims"] == 2
 
     def test_geico_2025_claim_count(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         geico = next(r for r in result if r["carrier_name"] == "GEICO")
         assert geico["2025_claims"] == 1
 
     def test_geico_2026_claim_count_zero(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         geico = next(r for r in result if r["carrier_name"] == "GEICO")
         assert geico["2026_claims"] == 0
 
     def test_statefarm_2025_claim_count(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         sf = next(r for r in result if r["carrier_name"] == "StateFarm")
         assert sf["2025_claims"] == 1
 
     def test_total_claims_correct(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         geico = next(r for r in result if r["carrier_name"] == "GEICO")
         assert geico["total_claims"] == 3  # 2 in 2024 + 1 in 2025
 
     def test_amount_columns_present(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         row = result[0]
         assert "2024_amount" in row and "2025_amount" in row and "2026_amount" in row
 
     def test_geico_2024_amount(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         geico = next(r for r in result if r["carrier_name"] == "GEICO")
         assert geico["2024_amount"] == pytest.approx(8000)  # 5000 + 3000
 
@@ -218,13 +218,13 @@ class TestGetCarrierClaimsSummary:
         """GEICO (3 total) must appear before StateFarm (1 total)."""
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("2024 2025 2026")
+        result = get_carrier_claims_summary(years=[2024, 2025, 2026])
         carriers = [r["carrier_name"] for r in result]
         assert carriers.index("GEICO") < carriers.index("StateFarm")
 
     def test_defaults_to_2024_2025_2026_when_no_years_given(self):
         from tools.analytics_tools import get_carrier_claims_summary
 
-        result = get_carrier_claims_summary("")
+        result = get_carrier_claims_summary()
         row = result[0]
         assert "2024_claims" in row and "2025_claims" in row and "2026_claims" in row

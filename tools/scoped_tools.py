@@ -9,16 +9,16 @@ For a carrier actor, every tool here must either:
       an individually identifiable record — those are intentionally left open to any carrier
       actor (cross-carrier benchmarking is in scope; cross-carrier individual records are not).
 
-Only five tools need wrapping: get_risk_score, get_claims_by_person, flag_fraud_risk,
-find_frequent_claimants, get_person_summary. Everything else a carrier actor gets is the exact
-same tool object a staff actor gets.
+Seven tools need wrapping: get_risk_score, list_policies, get_claims_by_person, flag_fraud_risk,
+find_frequent_claimants, list_claims, get_person_summary. Everything else a carrier actor gets is
+the exact same tool object a staff actor gets.
 """
 
 from datetime import date, timedelta
 from typing import Optional
 
-from langchain.tools import StructuredTool, Tool
-from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain.tools import StructuredTool
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from agents.actor import Actor
@@ -27,16 +27,20 @@ from tools.claims_tools import (
     CLAIMS_TOOLS,
     PersonIdInput,
     FrequentClaimantsInput,
+    ListClaimsInput,
     _assess_fraud_risk,
     find_frequent_claimants,
+    list_claims,
 )
 from tools.underwriting_tools import (
     UNDERWRITING_TOOLS,
     RiskScoreInput,
+    ListPoliciesInput,
     get_risk_score,
+    list_policies,
     normalize_carrier,
 )
-from tools.analytics_tools import ANALYTICS_TOOLS
+from tools.analytics_tools import ANALYTICS_TOOLS, NoInput, PersonSummaryInput
 
 
 def _get_claims_by_person_for_carrier(person_id: str, carrier_name: str) -> dict:
@@ -90,8 +94,13 @@ def _get_claims_by_person_for_carrier(person_id: str, carrier_name: str) -> dict
         session.close()
 
 
-def _get_person_summary_for_carrier(carrier_name: str) -> list:
-    """Same shape as tools.analytics_tools.get_person_summary, filtered to one carrier."""
+def _get_person_summary_for_carrier(carrier_name: str, limit: int = 25) -> list:
+    """Same shape as tools.analytics_tools.get_person_summary, filtered to one carrier.
+
+    Capped the same way as the unscoped version — even one carrier's book can run
+    into the hundreds of persons, which can still overrun the model's token budget.
+    """
+    limit = max(1, min(limit, 100))
     session = get_session()
     try:
         rows = (
@@ -132,9 +141,10 @@ def _get_person_summary_for_carrier(carrier_name: str) -> list:
               AND p.carrier_name = :carrier
             GROUP BY p.person_id
             ORDER BY total_claims DESC
+            LIMIT :limit
         """
                 ),
-                {"carrier": carrier_name},
+                {"carrier": carrier_name, "limit": limit},
             )
             .mappings()
             .fetchall()
@@ -146,8 +156,9 @@ def _get_person_summary_for_carrier(carrier_name: str) -> list:
 
 
 def scope_underwriting_tools(actor: Actor) -> list:
-    """Underwriting toolset for a carrier actor: get_risk_score is own-carrier-only,
-    get_churn_rate is passed through unchanged (an aggregate rate, not a record)."""
+    """Underwriting toolset for a carrier actor: get_risk_score and list_policies are
+    own-carrier-only (individual records); get_churn_rate is passed through unchanged
+    (an aggregate rate, not a record)."""
 
     def _scoped_get_risk_score(policy_id: str) -> dict:
         result = get_risk_score(policy_id)
@@ -164,12 +175,31 @@ def scope_underwriting_tools(actor: Actor) -> list:
         func=_scoped_get_risk_score,
         name="get_risk_score",
         description="""Get risk score and risk tier for a specific policy.
+        Use ONLY when a specific policy_id is given.
         Output: risk score (0-100) and tier (Low/Medium/High).""",
         args_schema=RiskScoreInput,
     )
 
+    def _scoped_list_policies(
+        carrier: Optional[str] = None, state: Optional[str] = None, limit: int = 10
+    ) -> list:
+        # Ignore whatever carrier the LLM passed — always force the actor's own.
+        return list_policies(carrier=actor.carrier_name, state=state, limit=limit)
+
+    scoped_list_policies = StructuredTool.from_function(
+        func=_scoped_list_policies,
+        name="list_policies",
+        description="""List your own carrier's policies, optionally filtered by state.
+        Use when asked to list, show, or sample N policies WITHOUT specific policy IDs
+        given — e.g. 'show me 3 policies', 'list policies in CA'.
+        Do NOT use this when a specific policy_id is already given — use get_risk_score instead.
+        Output: a list of policies with policy_id, holder_name, state, carrier, risk_score,
+        status, and premium.""",
+        args_schema=ListPoliciesInput,
+    )
+
     churn_rate_tool = next(t for t in UNDERWRITING_TOOLS if t.name == "get_churn_rate")
-    return [scoped_risk_score, churn_rate_tool]
+    return [scoped_risk_score, scoped_list_policies, churn_rate_tool]
 
 
 def scope_claims_tools(actor: Actor) -> list:
@@ -191,6 +221,10 @@ def scope_claims_tools(actor: Actor) -> list:
         return find_frequent_claimants(
             min_claims=min_claims, years=years, carrier=actor.carrier_name
         )
+
+    def _scoped_list_claims(year: Optional[int] = None, carrier: Optional[str] = None, limit: int = 20) -> list:
+        # Ignore whatever carrier the LLM passed — always force the actor's own.
+        return list_claims(carrier=actor.carrier_name, year=year, limit=limit)
 
     return [
         StructuredTool.from_function(
@@ -222,6 +256,17 @@ def scope_claims_tools(actor: Actor) -> list:
             Output: fraud risk level (Low/Medium/High), score, and recommendation.""",
             args_schema=PersonIdInput,
         ),
+        StructuredTool.from_function(
+            func=_scoped_list_claims,
+            name="list_claims",
+            description="""List individual claims under your own carrier, optionally filtered
+            by calendar year.
+            Use when asked to list/show claims for a year — e.g. 'show claims in 2026'.
+            Do NOT use this for a specific person_id (use get_claims_by_person) or for a
+            claim-count-threshold listing of persons (use find_frequent_claimants).
+            Output: a list of claims with claim_id, policy_id, person_id, date, type, amount, status.""",
+            args_schema=ListClaimsInput,
+        ),
     ]
 
 
@@ -230,19 +275,20 @@ def scope_analytics_tools(actor: Actor) -> list:
     (individual policyholder detail); every other analytics tool is passed through
     unchanged since it only ever returns aggregate counts/trends, not individual records."""
 
-    def _scoped_get_person_summary(input_str: str = "") -> list:
-        return _get_person_summary_for_carrier(actor.carrier_name)
+    def _scoped_get_person_summary(limit: int = 25) -> list:
+        return _get_person_summary_for_carrier(actor.carrier_name, limit=limit)
 
-    scoped_person_summary = Tool(
-        name="get_person_summary",
+    scoped_person_summary = StructuredTool.from_function(
         func=_scoped_get_person_summary,
+        name="get_person_summary",
         description="""Get a combined per-person summary across policies and claims, limited to
-        your own carrier's policyholders.
+        your own carrier's policyholders, ranked by total claims descending.
         Use when asked to list persons/customers with their policy count, premiums, claims, loss
         ratio, risk score, or fraud flag.
-        No input required.
+        Optional limit (default 25, max 100).
         Output: one row per person with policy_count, total_premium, risk_tier, claims_count,
         total_claims, loss_ratio_pct, fraud_flag.""",
+        args_schema=PersonSummaryInput,
     )
 
     passthrough = [t for t in ANALYTICS_TOOLS if t.name != "get_person_summary"]

@@ -16,7 +16,7 @@ random.seed(42)
 
 N_PERSONS = 1500
 N_POLICIES = 2000
-N_CLAIMS = 100
+N_CLAIMS = 300
 
 CARRIERS = ["GEICO", "StateFarm", "Allstate", "Progressive", "Nationwide"]
 STATES = ["CA", "TX", "FL", "NY", "WA", "IL", "GA", "OH"]

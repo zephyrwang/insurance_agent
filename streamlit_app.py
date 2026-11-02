@@ -399,9 +399,16 @@ def _parse_md_table(table_lines: list) -> Optional[pd.DataFrame]:
     data = [[c.strip() for c in r.split("|")[1:-1]] for r in rows[1:] if r.strip()]
     if not data or not headers:
         return None
-    # Pad rows to header length
-    data = [row + [""] * (len(headers) - len(row)) for row in data]
-    return pd.DataFrame(data, columns=headers)
+    # Normalize every row to the header's width — pad short rows, truncate long
+    # ones. The LLM doesn't always emit a perfectly uniform column count per row
+    # (e.g. a cell value containing a literal "|"), and a mismatch here must not
+    # crash the whole response — fall back to rendering it as plain markdown instead.
+    n = len(headers)
+    data = [(row + [""] * n)[:n] for row in data]
+    try:
+        return pd.DataFrame(data, columns=headers)
+    except ValueError:
+        return None
 
 
 def render_agent_response(content: str):

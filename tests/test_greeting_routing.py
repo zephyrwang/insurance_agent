@@ -1,13 +1,13 @@
 """
 Tests for the greeting agent and its routing:
-  - a brand-new session always meets the greeting agent first, regardless of content
-  - subsequent turns route normally
+  - a session's first turn is routed exactly like any other (a real question gets
+    answered directly; only actual smalltalk routes to greeting)
   - keyword routing recognizes smalltalk without misrouting real data questions
   - the greeting system prompt's capability text differs by actor mode
 
 The specialist agent builders are monkeypatched to lightweight fakes so these tests
-run without a live LLM — SupervisorAgent.run() still exercises the real routing and
-first-turn logic, just not a real ReAct loop.
+run without a live LLM — SupervisorAgent.run() still exercises the real routing logic,
+just not a real tool-calling loop.
 """
 
 import pytest
@@ -19,18 +19,24 @@ from agents.greeting_agent import build_greeting_system_prompt
 
 
 class _FakeAgent:
-    """Stands in for a real LangChain agent — returns a tag instead of calling an LLM."""
+    """Stands in for a real LangChain AgentExecutor — returns a tag instead of
+    calling an LLM. Implements .invoke() to match the agent interface
+    SupervisorAgent.run() actually calls (create_tool_calling_agent's AgentExecutor,
+    not the deprecated .run() shortcut)."""
 
     def __init__(self, tag):
         self.tag = tag
         self.tools = []
 
-    def run(self, question):
+    def invoke(self, inputs):
+        question = inputs["input"]
         if self.tag == "greeting":
-            return f"Hi! I'm here to help. ({question})"
+            return {"output": f"Hi! I'm here to help. ({question})"}
         # A pre-formed table so enforce_tabular_format's cheap check short-circuits
         # without needing to call the LLM for a reformat.
-        return f"| Field | Value |\n|---|---|\n| domain | {self.tag} |\n\n**Comment**\n- ok"
+        return {
+            "output": f"| Field | Value |\n|---|---|\n| domain | {self.tag} |\n\n**Comment**\n- ok"
+        }
 
 
 @pytest.fixture(autouse=True)
@@ -48,13 +54,22 @@ def fake_agent_builders(monkeypatch):
     )
 
 
-# ── first-turn-forces-greeting ────────────────────────────────────────────────
+# ── first-turn routing ─────────────────────────────────────────────────────
+# A session's first message is routed exactly like any other turn — a real,
+# answerable data question on message #1 must be answered directly, not
+# deferred behind a forced greeting-agent detour (that was the bug: every
+# first turn used to be hard-forced to "greeting" regardless of content).
 
 
-class TestFirstTurnForcesGreeting:
-    def test_first_turn_routes_to_greeting_even_for_a_clear_data_question(self):
+class TestFirstTurnRoutesNormally:
+    def test_first_turn_with_a_clear_data_question_goes_straight_to_the_data_agent(self):
         supervisor = SupervisorAgent()
         result = supervisor.run("What is the risk score for policy A-10234?")
+        assert result["routed_to"] == "underwriting"
+
+    def test_first_turn_with_smalltalk_still_goes_to_greeting(self):
+        supervisor = SupervisorAgent()
+        result = supervisor.run("hello", session_id="s1")
         assert result["routed_to"] == "greeting"
 
     def test_second_turn_in_the_same_session_routes_normally(self):
@@ -63,11 +78,11 @@ class TestFirstTurnForcesGreeting:
         result = supervisor.run("What is the risk score for policy A-10234?", session_id="s1")
         assert result["routed_to"] == "underwriting"
 
-    def test_each_session_gets_its_own_first_turn(self):
+    def test_each_session_routes_independently(self):
         supervisor = SupervisorAgent()
         r1 = supervisor.run("What is the risk score for policy A-10234?", session_id="s1")
-        r2 = supervisor.run("What is the risk score for policy A-10234?", session_id="s2")
-        assert r1["routed_to"] == "greeting"
+        r2 = supervisor.run("hello", session_id="s2")
+        assert r1["routed_to"] == "underwriting"
         assert r2["routed_to"] == "greeting"
 
     def test_greeting_answer_is_not_coerced_into_a_table(self):

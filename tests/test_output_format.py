@@ -151,3 +151,49 @@ class TestEnforceTabularFormat:
         result = enforce_tabular_format(PROSE_OUTPUT, llm)
         assert result == VALID_TABLE_WITH_COMMENT.strip()
         llm.invoke.assert_called_once()
+
+
+# ── unwrap_raw_action_json tests ─────────────────────────────────────────────
+# Some models (observed with openai/gpt-oss-120b) occasionally leak the raw
+# ReAct action JSON blob as the agent's final answer instead of LangChain's
+# output parser extracting just the action_input. These guard against that
+# regressing unnoticed after a future model/provider swap.
+
+# A real leaked blob captured from a live run against openai/gpt-oss-120b.
+LEAKED_ACTION_JSON = (
+    '{\n  "action": "Final Answer",\n  "action_input": "**Request for GEICO '
+    'Policies**\\n| Field | Value |\\n|---|---|\\n| Message | Please provide '
+    "specific policy IDs (e.g., A-10234) for the GEICO policies you would like "
+    'to view. |\\n\\n**Comment**\\n- Individual policy details require a '
+    "policy identifier.\\n- Once IDs are provided, I can retrieve risk scores "
+    'and premium information."\n}'
+)
+
+
+class TestUnwrapRawActionJson:
+    def test_leaked_action_blob_is_unwrapped(self):
+        from agents.output_validator import unwrap_raw_action_json
+
+        result = unwrap_raw_action_json(LEAKED_ACTION_JSON)
+        assert not result.startswith("{")
+        assert '"action"' not in result
+        assert result.startswith("**Request for GEICO Policies**")
+        assert "| Field | Value |" in result
+
+    def test_normal_answer_is_untouched(self):
+        from agents.output_validator import unwrap_raw_action_json
+
+        assert unwrap_raw_action_json(VALID_TABLE_WITH_COMMENT) == VALID_TABLE_WITH_COMMENT
+        assert unwrap_raw_action_json(PROSE_OUTPUT) == PROSE_OUTPUT
+
+    def test_json_looking_but_unrelated_text_is_untouched(self):
+        from agents.output_validator import unwrap_raw_action_json
+
+        text = '{"unrelated": "object", "no_action_key": true}'
+        assert unwrap_raw_action_json(text) == text
+
+    def test_malformed_json_is_untouched(self):
+        from agents.output_validator import unwrap_raw_action_json
+
+        text = '{"action": "Final Answer", "action_input": not valid json'
+        assert unwrap_raw_action_json(text) == text

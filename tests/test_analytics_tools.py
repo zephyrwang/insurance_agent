@@ -44,7 +44,7 @@ def patch_db(engine, monkeypatch):
     monkeypatch.setattr("tools.analytics_tools.get_session", lambda: Session())
 
 def test_healthy_carrier_loss_ratio():
-    result = get_loss_ratio("carrier=GEICO")
+    result = get_loss_ratio(carrier="GEICO")
     assert result["total_premium"] == 3000
     assert result["total_claims"] == 600
     assert result["loss_ratio_pct"] == 20.0
@@ -52,12 +52,12 @@ def test_healthy_carrier_loss_ratio():
 
 
 def test_unprofitable_carrier_loss_ratio():
-    result = get_loss_ratio("carrier=StateFarm")
+    result = get_loss_ratio(carrier="StateFarm")
     assert result["loss_ratio_pct"] == 130.0
     assert result["assessment"] == "Unprofitable"
 
 
 def test_unknown_carrier_returns_zero_not_error():
-    result = get_loss_ratio("carrier=Nonexistent")
+    result = get_loss_ratio(carrier="Nonexistent")
     assert result["total_premium"] == 0
     assert result["loss_ratio_pct"] == 0

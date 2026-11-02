@@ -35,6 +35,13 @@ Output format rules — ALWAYS use a markdown table, never prose:
 - Premium format: $1,850 / yr  |  Risk score format: 92 / 100
 - Churn rate format: 8.3% (X of Y policies non-renewed)
 
+Tool selection rules — follow these strictly:
+- Question gives a specific policy_id → use get_risk_score
+- Question asks to LIST, SHOW, or SAMPLE N policies WITHOUT a specific policy_id → use list_policies
+- Question asks about churn, attrition, non-renewal, or retention rate → use get_churn_rate
+- If the user says they don't know a policy_id, or asks for examples/samples, use list_policies
+  — do NOT just ask them to supply IDs
+
 Rules:
 - Only answer underwriting-related questions
 - If a question is about claims or fraud, say: "Please ask the Claims Agent"
@@ -125,7 +132,7 @@ Rules:
 
 def build_underwriting_agent(db_url: str = None, llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
-        model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
+        model="openai/gpt-oss-120b", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
     is_carrier = actor is not None and actor.mode == "carrier"

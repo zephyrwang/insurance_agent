@@ -122,19 +122,25 @@ class TestDBConnectivity:
             "Call db.database.seed_sample_data() or start the API."
         )
 
-    def test_policy_a10234_exists(self):
-        """The specific policy from the failing question must exist in the DB."""
+    def test_a_real_policy_is_queryable(self):
+        """A policy_id actually present in the DB must be queryable with a risk score.
+
+        Doesn't hardcode a specific id — seed_rich_data.py generates policy_ids
+        programmatically (A-2xxxxx) rather than a fixed set, so any literal id here
+        would go stale the next time the dev DB is reseeded.
+        """
         from db.database import get_engine
         from sqlalchemy import text
 
         engine = get_engine(REAL_DB_URL)
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT policy_id, risk_score FROM auto_policies WHERE policy_id = 'A-10234'")
+                text("SELECT policy_id, risk_score FROM auto_policies LIMIT 1")
             ).fetchone()
         assert row is not None, (
-            "Policy A-10234 not found in insurance_dev.db. " "The DB may need to be re-seeded."
+            "No policies found in insurance_dev.db. The DB may need to be re-seeded."
         )
+        assert row[1] is not None, f"Policy {row[0]} has no risk_score."
 
 
 # ─────────────────────────────────────────────────────────────
@@ -265,7 +271,7 @@ def _stub_llm():
     from langchain_groq import ChatGroq
 
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         temperature=0,
         groq_api_key="gsk_test_invalid_key_for_init_testing_only",
     )
@@ -324,7 +330,7 @@ class TestLLMConnectivity:
         from langchain.schema import HumanMessage
 
         llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             temperature=0,
             groq_api_key=GROQ_KEY,
         )

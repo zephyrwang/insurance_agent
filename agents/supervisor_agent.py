@@ -16,7 +16,11 @@ from agents.underwriting_agent import build_underwriting_agent
 from agents.claims_agent import build_claims_agent
 from agents.analytics_agent import build_analytics_agent
 from agents.greeting_agent import build_greeting_agent
-from agents.output_validator import enforce_tabular_format
+from agents.output_validator import (
+    enforce_tabular_format,
+    unwrap_raw_action_json,
+    extract_deferral_target,
+)
 from agents.actor import Actor
 
 
@@ -198,7 +202,7 @@ class SupervisorAgent:
 
     def __init__(self, db_url: str = None):
         self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
+            model="openai/gpt-oss-120b", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
         )
         self.db_url = db_url
 
@@ -252,20 +256,31 @@ class SupervisorAgent:
         """
         actor = actor or Actor.staff()
 
-        # A brand-new session always meets the greeting agent first, regardless of what
-        # the opening message says — it introduces itself and what it can help with
-        # before handing off to a data agent on the next turn.
-        is_first_turn = session_id not in self._session_agents
-        if is_first_turn:
-            domain = "greeting"
-            self.routing_log.append({"question": question, "routed_to": domain})
-        else:
-            domain = self.route(question)
-
+        # Route every turn the same way, first or not — a clear, answerable question
+        # on message #1 gets answered, not deferred behind a forced intro. The greeting
+        # agent still naturally handles a session's first turn when it's actually
+        # smalltalk (routing/_llm_route already classify "hello"-shaped messages as
+        # "greeting"); it just doesn't get forced onto a real data question.
+        domain = self.route(question)
         agent = self._get_agents(session_id, actor)[domain]
 
         try:
-            answer = agent.run(question)
+            answer = agent.invoke({"input": question})["output"]
+            answer = unwrap_raw_action_json(answer)
+
+            # A specialist's own prompt sometimes recognizes a question is out of its
+            # scope and defers ("Please ask the Claims Agent") — that means the initial
+            # routing missed. Transparently re-route to the named sibling once rather
+            # than surfacing the deferral text as if it were the final answer; the user
+            # already asked a complete question and shouldn't have to re-ask it.
+            redirect_domain = extract_deferral_target(answer)
+            if redirect_domain and redirect_domain != domain:
+                domain = redirect_domain
+                self.routing_log.append({"question": question, "routed_to": domain})
+                agent = self._get_agents(session_id, actor)[domain]
+                answer = agent.invoke({"input": question})["output"]
+                answer = unwrap_raw_action_json(answer)
+
             answer = enforce_tabular_format(answer, self.llm, skip=(domain == "greeting"))
         except Exception as e:
             answer = f"Error in {domain} agent: {str(e)}"

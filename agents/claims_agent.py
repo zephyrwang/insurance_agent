@@ -34,6 +34,8 @@ Output format rules — ALWAYS use a markdown table, never prose:
 
 Tool selection rules — follow these strictly:
 - Question asks to FIND or LIST persons with N+ claims → use find_frequent_claimants
+- Question asks to LIST or SHOW claims for a carrier/year WITHOUT a specific person_id or a
+  claim-count threshold → use list_claims — e.g. 'show claims from GEICO in 2026', 'claims in 2025'
 - Question mentions a specific person_id AND asks for their claim history → use get_claims_by_person
 - Question mentions a specific person_id AND asks about fraud/risk → use flag_fraud_risk
 - Never call flag_fraud_risk or get_claims_by_person when the question asks to find ALL persons
@@ -49,7 +51,7 @@ General rules:
 
 def build_claims_agent(llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
-        model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
+        model="openai/gpt-oss-120b", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
     is_carrier = actor is not None and actor.mode == "carrier"

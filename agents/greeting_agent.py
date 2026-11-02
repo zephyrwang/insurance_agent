@@ -51,7 +51,7 @@ Rules:
 
 def build_greeting_agent(llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
-        model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
+        model="openai/gpt-oss-120b", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
     actor = actor or Actor.staff()
 

@@ -219,6 +219,29 @@ class TestScopedGetRiskScore:
         assert scoped_tool is staff_tool
 
 
+# ── list_policies ─────────────────────────────────────────────────────────────
+
+
+class TestScopedListPolicies:
+    def test_adversarial_carrier_argument_is_ignored(self):
+        """A GEICO actor passing carrier='StateFarm' must still only get GEICO
+        policies back — the argument is forced server-side, not trusted from the LLM."""
+        tools = scope_underwriting_tools(Actor.carrier("GEICO"))
+        result = _tool(tools, "list_policies").func(carrier="StateFarm", limit=10)
+
+        assert len(result) > 0
+        assert all(row["carrier_name"] == "GEICO" for row in result)
+
+    def test_no_carrier_argument_still_scopes_to_own_carrier(self):
+        """The whole point of the bug report this fixes: 'show me 3 policies' with
+        no carrier mentioned at all must still only return the actor's own carrier."""
+        tools = scope_underwriting_tools(Actor.carrier("StateFarm"))
+        result = _tool(tools, "list_policies").func(limit=3)
+
+        assert 0 < len(result) <= 3
+        assert all(row["carrier_name"] == "StateFarm" for row in result)
+
+
 # ── find_frequent_claimants ───────────────────────────────────────────────────
 
 
@@ -232,6 +255,31 @@ class TestScopedFindFrequentClaimants:
         )
 
         assert len(result) > 0
+        assert all(row["carrier_name"] == "StateFarm" for row in result)
+
+
+# ── list_claims ───────────────────────────────────────────────────────────────
+
+
+class TestScopedListClaims:
+    def test_adversarial_carrier_argument_is_ignored(self):
+        """A GEICO actor passing carrier='StateFarm' must still only get the
+        GEICO claim back — the argument is forced server-side, not trusted
+        from the LLM. Also the original bug report's shape: filtering by year."""
+        tools = scope_claims_tools(Actor.carrier("GEICO"))
+        result = _tool(tools, "list_claims").func(carrier="StateFarm", year=2024)
+
+        assert len(result) == 1
+        assert result[0]["claim_id"] == "C-G1"
+
+    def test_no_carrier_argument_still_scopes_to_own_carrier(self):
+        """StateFarm has two claims in the fixture (C-S1 via P-SHARED, C-S2 via
+        P-OTHER) — both must come back, and nothing from GEICO."""
+        tools = scope_claims_tools(Actor.carrier("StateFarm"))
+        result = _tool(tools, "list_claims").func(year=2024)
+
+        claim_ids = {row["claim_id"] for row in result}
+        assert claim_ids == {"C-S1", "C-S2"}
         assert all(row["carrier_name"] == "StateFarm" for row in result)
 
 

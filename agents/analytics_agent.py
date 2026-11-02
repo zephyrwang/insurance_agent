@@ -36,7 +36,7 @@ Tool selection rules — follow these strictly:
 - Loss ratio questions (overall, by state, by carrier) → always use get_loss_ratio
 - Portfolio overview / summary / KPI questions → use get_portfolio_summary
 - Trend / monthly / seasonal questions → use get_claims_trend
-- For "overall portfolio loss ratio", call get_loss_ratio with an empty string input
+- For "overall portfolio loss ratio", call get_loss_ratio with no arguments at all
 - Per-person combined view (policy + claims + risk + fraud) → use get_person_summary
 - Policy counts by carrier and year → use get_carrier_summary
 - Claim counts or claim volumes per carrier/company by year → use get_carrier_claims_summary
@@ -52,7 +52,7 @@ General rules:
 
 def build_analytics_agent(llm=None, actor: Actor = None):
     llm = llm or ChatGroq(
-        model="llama-3.3-70b-versatile", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
+        model="openai/gpt-oss-120b", temperature=0, groq_api_key=os.getenv("GROQ_API_KEY")
     )
 
     is_carrier = actor is not None and actor.mode == "carrier"

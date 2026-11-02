@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from langchain.tools import StructuredTool
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from db.database import get_session
@@ -160,6 +160,44 @@ def flag_fraud_risk(person_id: str) -> dict:
     return _assess_fraud_risk(person_id, get_claims_by_person(person_id))
 
 
+def list_claims(
+    carrier: Optional[str] = None, year: Optional[int] = None, limit: int = 20
+) -> list:
+    """List claims, optionally filtered by carrier and/or calendar year."""
+    limit = max(1, min(limit, 100))
+    where = ["1=1"]
+    params = {"limit": limit}
+    if carrier:
+        where.append("LOWER(carrier_name) = LOWER(:carrier)")
+        params["carrier"] = carrier.strip()
+    if year:
+        where.append("strftime('%Y', claim_date) = :year")
+        params["year"] = str(year)
+    where_sql = " AND ".join(where)
+
+    session = _session()
+    try:
+        rows = (
+            session.execute(
+                text(
+                    f"""
+            SELECT claim_id, policy_id, person_id, claim_date, claim_type, amount, status, carrier_name
+            FROM claims
+            WHERE {where_sql}
+            ORDER BY claim_date DESC
+            LIMIT :limit
+        """
+                ),
+                params,
+            )
+            .mappings()
+            .fetchall()
+        )
+        return [dict(r) for r in rows]
+    finally:
+        session.close()
+
+
 class PersonIdInput(BaseModel):
     person_id: str = Field(description="Person id, e.g. 'P-001'")
 
@@ -171,6 +209,14 @@ class FrequentClaimantsInput(BaseModel):
         default=None,
         description="Optional carrier name filter, e.g. GEICO, StateFarm, Allstate",
     )
+
+
+class ListClaimsInput(BaseModel):
+    carrier: Optional[str] = Field(
+        default=None, description="Optional carrier name filter, e.g. GEICO, StateFarm"
+    )
+    year: Optional[int] = Field(default=None, description="Optional 4-digit calendar year, e.g. 2026")
+    limit: int = Field(default=20, description="Max number of claims to return (default 20, max 100)")
 
 
 CLAIMS_TOOLS = [
@@ -202,5 +248,16 @@ CLAIMS_TOOLS = [
         Do NOT use this to find multiple persons or answer listing questions.
         Output: fraud risk level (Low/Medium/High), score, and recommendation.""",
         args_schema=PersonIdInput,
+    ),
+    StructuredTool.from_function(
+        func=list_claims,
+        name="list_claims",
+        description="""List individual claims, optionally filtered by carrier and/or calendar year.
+        Use when asked to list/show claims for a carrier and/or a specific year — e.g.
+        'show claims from GEICO in 2026', 'list claims in 2025', 'what claims did StateFarm have in 2024'.
+        Do NOT use this for a specific person_id (use get_claims_by_person) or for a
+        claim-count-threshold listing of persons (use find_frequent_claimants).
+        Output: a list of claims with claim_id, policy_id, person_id, date, type, amount, status.""",
+        args_schema=ListClaimsInput,
     ),
 ]

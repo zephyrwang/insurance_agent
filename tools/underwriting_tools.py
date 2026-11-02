@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from langchain.tools import StructuredTool
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from db.database import get_session
@@ -137,6 +137,42 @@ def get_churn_rate(carrier: str, quarter: Optional[str] = None, year: Optional[i
         session.close()
 
 
+def list_policies(carrier: Optional[str] = None, state: Optional[str] = None, limit: int = 10) -> list:
+    """List policies, optionally filtered by carrier and/or state."""
+    limit = max(1, min(limit, 50))
+    where = ["1=1"]
+    params = {"limit": limit}
+    if carrier:
+        where.append("carrier_name = :carrier")
+        params["carrier"] = normalize_carrier(carrier)
+    if state:
+        where.append("state = :state")
+        params["state"] = state.strip().upper()
+    where_sql = " AND ".join(where)
+
+    session = _session()
+    try:
+        rows = (
+            session.execute(
+                text(
+                    f"""
+            SELECT policy_id, holder_name, state, carrier_name, risk_score, status, premium
+            FROM auto_policies
+            WHERE {where_sql}
+            ORDER BY policy_id
+            LIMIT :limit
+        """
+                ),
+                params,
+            )
+            .mappings()
+            .fetchall()
+        )
+        return [dict(r) for r in rows]
+    finally:
+        session.close()
+
+
 class RiskScoreInput(BaseModel):
     policy_id: str = Field(description="Policy id, e.g. 'A-10234'")
 
@@ -151,11 +187,20 @@ class ChurnRateInput(BaseModel):
     year: Optional[int] = Field(default=None, description="4-digit year, e.g. 2026")
 
 
+class ListPoliciesInput(BaseModel):
+    carrier: Optional[str] = Field(
+        default=None, description="Optional carrier name filter, e.g. GEICO, StateFarm"
+    )
+    state: Optional[str] = Field(default=None, description="Optional 2-letter state filter, e.g. CA")
+    limit: int = Field(default=10, description="Max number of policies to return (default 10, max 50)")
+
+
 UNDERWRITING_TOOLS = [
     StructuredTool.from_function(
         func=get_risk_score,
         name="get_risk_score",
         description="""Get risk score and risk tier for a specific policy.
+        Use ONLY when a specific policy_id is given.
         Output: risk score (0-100) and tier (Low/Medium/High).""",
         args_schema=RiskScoreInput,
     ),
@@ -166,5 +211,16 @@ UNDERWRITING_TOOLS = [
         Use when asked about: churn rate, attrition, non-renewal rate, retention rate.
         Defaults to the trailing 90 days when no quarter/year is given.""",
         args_schema=ChurnRateInput,
+    ),
+    StructuredTool.from_function(
+        func=list_policies,
+        name="list_policies",
+        description="""List policies, optionally filtered by carrier and/or state.
+        Use when asked to list, show, or sample N policies WITHOUT specific policy IDs
+        given — e.g. 'show me 3 policies', 'list policies in CA', 'sample some GEICO policies'.
+        Do NOT use this when a specific policy_id is already given — use get_risk_score instead.
+        Output: a list of policies with policy_id, holder_name, state, carrier, risk_score,
+        status, and premium.""",
+        args_schema=ListPoliciesInput,
     ),
 ]
